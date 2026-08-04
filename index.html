@@ -56,6 +56,14 @@ body:not(.overlay) #flash{display:none}
 @keyframes cornerIn{0%{transform:scale(0) rotate(14deg);opacity:0}100%{transform:scale(1) rotate(0);opacity:1}}
 @keyframes cornerOut{0%{transform:scale(1);opacity:1}100%{transform:scale(.2) translateX(40%);opacity:0}}
 
+.shot.fade{left:50%;top:50%;transform:translate(-50%,-50%)}
+.shot.fade.in{animation:fadeIn .55s ease-out both}
+.shot.fade.out{animation:fadeOut .55s ease-in both}
+@keyframes fadeIn{0%{opacity:0;transform:translate(-50%,-50%) scale(1.04)}
+  100%{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@keyframes fadeOut{0%{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-50%) scale(1.02)}}
+
 .shot.sweep{top:50%;left:0}
 .shot.sweep.in{animation:sweepGo var(--hold) linear both}
 @keyframes sweepGo{0%{transform:translate(-110vw,-50%) rotate(-4deg)}
@@ -233,7 +241,7 @@ function fire(p){
   }else{
     setTimeout(function(){
       img.classList.remove("in"); img.classList.add("out");
-      setTimeout(function(){ if(img.parentNode) img.parentNode.removeChild(img); },440);
+      setTimeout(function(){ if(img.parentNode) img.parentNode.removeChild(img); },640);
     },hold);
   }
 }
@@ -283,7 +291,7 @@ function renderDeck(){
 
 function buildChips(){
   var sWrap=document.getElementById("styles");
-  [["As set",null],["Slam","slam"],["Drop","drop"],["Corner","corner"],["Fly by","sweep"]].forEach(function(pair){
+  [["As set",null],["Slam","slam"],["Fade","fade"],["Drop","drop"],["Corner","corner"],["Fly by","sweep"]].forEach(function(pair){
     var b=document.createElement("button");
     b.className="chip"; b.textContent=pair[0];
     b.setAttribute("aria-pressed",String(pickStyle===pair[1]));
@@ -394,7 +402,7 @@ function openEditor(idx){
   fSrc.value=cur.src; fLab.value=cur.label; fSize.value=cur.size; fVal.textContent=cur.size+"%";
 
   var sw=document.getElementById("f_style");
-  [["Slam","slam"],["Drop","drop"],["Corner","corner"],["Fly by","sweep"]].forEach(function(p){
+  [["Slam","slam"],["Fade","fade"],["Drop","drop"],["Corner","corner"],["Fly by","sweep"]].forEach(function(p){
     var b=document.createElement("button"); b.className="chip"; b.textContent=p[0];
     b.setAttribute("aria-pressed",String(chosen===p[1]));
     b.onclick=function(){ chosen=p[1];

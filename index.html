@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PR0CESS_LIVE // SLAM DECK</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+/* ============================================================
+   PR0CESS_LIVE // SLAM DECK
+   #overlay  -> OBS browser source (transparent, no UI)
+   (no hash) -> PIN-gated control deck
+   ============================================================ */
+
+:root{
+  --black:#030303;
+  --ink:#0A0C0E;
+  --line:#1B2126;
+  --blue:#3FC6FF;
+  --white:#FFFFFF;
+  --dim:#5C6A73;
+  --red:#FF2E5F;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+
+/* ---------- OVERLAY MODE: fully transparent ---------- */
+body.overlay{background:transparent;overflow:hidden}
+body.overlay #deck{display:none}
+
+#stage{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:10}
+body:not(.overlay) #stage{display:none}
+
+.shot{position:absolute;display:block;width:var(--w);height:auto;
+  filter:drop-shadow(0 18px 40px rgba(0,0,0,.55))}
+
+/* slam: hurls in from the viewer's face, overshoots, settles */
+.shot.slam{left:50%;top:50%;transform:translate(-50%,-50%)}
+.shot.slam.in{animation:slamIn .40s cubic-bezier(.16,1.5,.32,1) both}
+.shot.slam.out{animation:slamOut .26s cubic-bezier(.5,0,.75,0) both}
+@keyframes slamIn{
+  0%{transform:translate(-50%,-50%) scale(5) rotate(-9deg);opacity:0}
+  40%{opacity:1}
+  62%{transform:translate(-50%,-50%) scale(.86) rotate(3deg);opacity:1}
+  80%{transform:translate(-50%,-50%) scale(1.07) rotate(-1.5deg)}
+  100%{transform:translate(-50%,-50%) scale(1) rotate(0)}
+}
+@keyframes slamOut{
+  0%{transform:translate(-50%,-50%) scale(1);opacity:1}
+  100%{transform:translate(-50%,-50%) scale(1.9);opacity:0}
+}
+
+/* drop: falls from above, bounces once */
+.shot.drop{left:50%;top:14%;transform:translate(-50%,0)}
+.shot.drop.in{animation:dropIn .62s cubic-bezier(.3,1.4,.5,1) both}
+.shot.drop.out{animation:dropOut .34s cubic-bezier(.6,0,.9,.2) both}
+@keyframes dropIn{
+  0%{transform:translate(-50%,-160vh) rotate(-6deg)}
+  70%{transform:translate(-50%,4vh) rotate(2deg)}
+  100%{transform:translate(-50%,0) rotate(0)}
+}
+@keyframes dropOut{
+  0%{transform:translate(-50%,0);opacity:1}
+  100%{transform:translate(-50%,150vh) rotate(12deg);opacity:.4}
+}
+
+/* corner: pops bottom-right, out of the way of cam */
+.shot.corner{right:3vw;bottom:5vh;transform-origin:100% 100%}
+.shot.corner.in{animation:cornerIn .34s cubic-bezier(.16,1.5,.32,1) both}
+.shot.corner.out{animation:cornerOut .24s ease-in both}
+@keyframes cornerIn{0%{transform:scale(0) rotate(14deg);opacity:0}100%{transform:scale(1) rotate(0);opacity:1}}
+@keyframes cornerOut{0%{transform:scale(1);opacity:1}100%{transform:scale(.2) translateX(40%);opacity:0}}
+
+/* sweep: flies across the whole screen and leaves on its own */
+.shot.sweep{top:50%;left:0;transform:translate(-100%,-50%)}
+.shot.sweep.in{animation:sweepGo var(--hold) linear both}
+@keyframes sweepGo{
+  0%{transform:translate(-110vw,-50%) rotate(-4deg)}
+  100%{transform:translate(110vw,-50%) rotate(4deg)}
+}
+
+#flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:9}
+#flash.hit{animation:flashHit .1s ease-out both}
+@keyframes flashHit{0%{opacity:.42}100%{opacity:0}}
+
+/* ---------- DECK MODE ---------- */
+body:not(.overlay){
+  background:var(--black);color:var(--white);font-family:var(--mono);
+  background-image:repeating-linear-gradient(to bottom,rgba(255,255,255,.028) 0 1px,transparent 1px 3px);
+}
+#deck{max-width:760px;margin:0 auto;padding:18px 16px 40px;min-height:100%}
+
+.mast{display:flex;align-items:baseline;gap:10px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.mast h1{font-size:15px;font-weight:700;letter-spacing:.34em;text-transform:uppercase}
+.mast h1 .z{color:var(--blue)}
+.mast .ver{margin-left:auto;font-size:10px;letter-spacing:.18em;color:var(--dim)}
+
+.status{display:flex;align-items:center;gap:8px;padding:11px 0;font-size:10.5px;
+  letter-spacing:.2em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--line)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--dim);flex:none}
+.dot.live{background:var(--blue);box-shadow:0 0 0 0 rgba(63,198,255,.7);animation:pulse 2s infinite}
+.dot.dead{background:var(--red)}
+@keyframes pulse{70%{box-shadow:0 0 0 7px rgba(63,198,255,0)}100%{box-shadow:0 0 0 0 rgba(63,198,255,0)}}
+.status .who{margin-left:auto;color:var(--blue)}
+
+/* PIN gate */
+#gate{max-width:320px;margin:16vh auto 0;text-align:center}
+#gate p{font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);margin-bottom:18px}
+#gate input{width:100%;background:var(--ink);border:1px solid var(--line);color:var(--white);
+  font-family:var(--mono);font-size:24px;letter-spacing:.5em;text-align:center;padding:15px 10px 15px 20px;
+  border-radius:2px;outline:none}
+#gate input:focus{border-color:var(--blue)}
+#gate button{width:100%;margin-top:12px;background:var(--blue);color:var(--black);border:0;
+  font-family:var(--mono);font-weight:700;font-size:12px;letter-spacing:.24em;padding:15px;
+  border-radius:2px;cursor:pointer;text-transform:uppercase}
+#gate .err{margin-top:14px;color:var(--red);font-size:10.5px;letter-spacing:.14em;min-height:14px;text-transform:uppercase}
+
+/* controls */
+.rowlabel{font-size:9.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--dim);margin:20px 0 8px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{background:transparent;border:1px solid var(--line);color:var(--dim);font-family:var(--mono);
+  font-size:10px;letter-spacing:.16em;text-transform:uppercase;padding:8px 12px;border-radius:2px;cursor:pointer}
+.chip[aria-pressed="true"]{border-color:var(--blue);color:var(--blue);background:rgba(63,198,255,.07)}
+
+/* the board */
+#board{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:8px;margin-top:9px}
+.tile{position:relative;background:var(--ink);border:1px solid var(--line);border-radius:2px;
+  aspect-ratio:1/1;cursor:pointer;overflow:hidden;display:flex;align-items:center;justify-content:center;
+  padding:8px;transition:border-color .12s}
+.tile:active{border-color:var(--blue)}
+.tile img{max-width:100%;max-height:100%;object-fit:contain;pointer-events:none}
+.tile .noimg{font-size:9px;letter-spacing:.14em;color:var(--dim);text-align:center;line-height:1.5}
+.tile .cap{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(transparent,rgba(3,3,3,.94) 55%);
+  font-size:9px;letter-spacing:.16em;text-transform:uppercase;padding:14px 6px 5px;text-align:center;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .arm{position:absolute;left:0;bottom:0;height:2px;background:var(--blue);width:0}
+.tile.fired{border-color:var(--blue)}
+.tile.fired .arm{width:100%;transition:width var(--cd) linear}
+.tile.locked{opacity:.35;pointer-events:none}
+
+#kill{width:100%;margin-top:22px;background:transparent;border:1px solid var(--red);color:var(--red);
+  font-family:var(--mono);font-weight:700;font-size:11px;letter-spacing:.28em;text-transform:uppercase;
+  padding:15px;border-radius:2px;cursor:pointer}
+#kill:active{background:var(--red);color:var(--black)}
+
+/* shot log */
+#log{margin-top:26px;border-top:1px solid var(--line);padding-top:12px}
+#log .line{display:flex;gap:12px;font-size:10px;letter-spacing:.12em;color:var(--dim);padding:4px 0}
+#log .line .t{color:var(--blue);flex:none}
+#log .line .n{text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#log .empty{font-size:10px;letter-spacing:.16em;color:var(--dim);text-transform:uppercase;padding:4px 0}
+
+@media (prefers-reduced-motion:reduce){
+  body:not(.overlay) *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<!-- ================= OVERLAY (OBS) ================= -->
+<div id="flash"></div>
+<div id="stage"></div>
+
+<!-- ================= DECK ================= -->
+<div id="deck">
+  <div id="gate">
+    <p>Crew access</p>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="••••">
+    <button id="go">Unlock</button>
+    <div class="err" id="gerr"></div>
+  </div>
+
+  <div id="panel" style="display:none">
+    <div class="mast">
+      <h1>SLAM DECK</h1>
+      <span class="ver">PR0CESS_LIVE</span>
+    </div>
+    <div class="status">
+      <span class="dot" id="dot"></span>
+      <span id="stat">Connecting</span>
+      <span class="who" id="who"></span>
+    </div>
+
+    <div class="rowlabel">Entrance</div>
+    <div class="chips" id="styles"></div>
+
+    <div class="rowlabel">Hold</div>
+    <div class="chips" id="holds"></div>
+
+    <div class="rowlabel">Board</div>
+    <div id="board"></div>
+
+    <button id="kill">Clear the screen</button>
+
+    <div id="log"><div class="empty">No shots yet</div></div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   1. CONFIG — the only part you edit
+   ============================================================ */
+const SUPABASE_URL = "https://tewcgwhumtmjvfxcvbxl.supabase.co";
+const SUPABASE_ANON_KEY = "PASTE_YOUR_ANON_KEY_HERE";
+const CHANNEL   = "grex-slam";
+const COOLDOWN  = 2500;   // ms before the same tile can fire again
+
+/* Your board. Drop the image files in an /img folder in this repo.
+   style: slam | drop | corner | sweep      size: % of screen width  */
+const SLAMS = [
+  { label:"Example 1", src:"img/one.png",   style:"slam",   size:34 },
+  { label:"Example 2", src:"img/two.png",   style:"drop",   size:28 },
+  { label:"Example 3", src:"img/three.png", style:"corner", size:22 },
+  { label:"Example 4", src:"img/four.png",  style:"sweep",  size:26 },
+  { label:"Example 5", src:"img/five.gif",  style:"slam",   size:40 },
+  { label:"Example 6", src:"img/six.gif",   style:"corner", size:24 }
+];
+
+/* ============================================================
+   2. WIRING
+   ============================================================ */
+const IS_OVERLAY = location.hash.toLowerCase().indexOf("overlay") !== -1;
+if (IS_OVERLAY) document.body.classList.add("overlay");
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  realtime:{ params:{ eventsPerSecond: 20 } }
+});
+
+let channel = null;
+
+function connect(onReady){
+  channel = sb.channel(CHANNEL, { config:{ broadcast:{ self:false }, presence:{ key: IS_OVERLAY ? "overlay" : "deck-"+Math.random().toString(36).slice(2,7) } } });
+
+  channel.on("broadcast", { event:"slam"  }, ({payload}) => { if (IS_OVERLAY) fire(payload); });
+  channel.on("broadcast", { event:"clear" }, ()          => { if (IS_OVERLAY) clearStage(); });
+  channel.on("presence",  { event:"sync"  }, () => { if (!IS_OVERLAY) paintStatus(); });
+
+  channel.subscribe(async (status) => {
+    if (status === "SUBSCRIBED"){
+      await channel.track({ role: IS_OVERLAY ? "overlay" : "deck", at: Date.now() });
+      if (onReady) onReady();
+      if (!IS_OVERLAY) paintStatus();
+    }
+    if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED"){
+      if (!IS_OVERLAY) setStatus(false, "Reconnecting");
+      setTimeout(() => { try{ sb.removeChannel(channel); }catch(e){} connect(onReady); }, 3000);
+    }
+  });
+}
+
+/* ============================================================
+   3. OVERLAY — receives and plays
+   ============================================================ */
+const stage = document.getElementById("stage");
+const flash = document.getElementById("flash");
+
+function clearStage(){ stage.innerHTML = ""; }
+
+function fire(p){
+  if (!p || !p.src) return;
+  const style = p.style || "slam";
+  const hold  = Math.max(400, p.hold || 2500);
+  const img = document.createElement("img");
+  img.className = "shot " + style;
+  img.style.setProperty("--w",   (p.size || 32) + "vw");
+  img.style.setProperty("--hold", hold + "ms");
+  img.src = p.src;
+  img.onerror = () => img.remove();
+  stage.appendChild(img);
+
+  if (style === "slam"){
+    flash.classList.remove("hit"); void flash.offsetWidth; flash.classList.add("hit");
+  }
+
+  requestAnimationFrame(() => img.classList.add("in"));
+
+  if (style === "sweep"){
+    setTimeout(() => img.remove(), hold + 120);
+  } else {
+    setTimeout(() => {
+      img.classList.remove("in");
+      img.classList.add("out");
+      setTimeout(() => img.remove(), 420);
+    }, hold);
+  }
+}
+
+/* ============================================================
+   4. DECK — PIN gate, board, firing
+   ============================================================ */
+if (!IS_OVERLAY){
+  const gate = document.getElementById("gate");
+  const panel = document.getElementById("panel");
+  const pinEl = document.getElementById("pin");
+  const gerr = document.getElementById("gerr");
+  const dot = document.getElementById("dot");
+  const stat = document.getElementById("stat");
+  const whoEl = document.getElementById("who");
+  const board = document.getElementById("board");
+  const logEl = document.getElementById("log");
+
+  let role = sessionStorage.getItem("slam_role") || null;
+  let pickStyle = null;                 // null = use each tile's own style
+  let pickHold  = 2500;
+  const shots = [];
+
+  /* ---- PIN ---- */
+  async function unlock(){
+    const pin = pinEl.value.trim();
+    if (!pin) return;
+    gerr.textContent = "Checking";
+    try{
+      const { data, error } = await sb.rpc("pq_role", { pin });
+      if (error) throw error;
+      const r = Array.isArray(data) ? data[0] : data;
+      const val = (r && (r.role || r)) || null;
+      if (!val || val === "none"){ gerr.textContent = "Wrong PIN"; pinEl.value = ""; return; }
+      role = String(val);
+      sessionStorage.setItem("slam_role", role);
+      openDeck();
+    }catch(e){
+      gerr.textContent = "Can't reach the server";
+      console.error(e);
+    }
+  }
+  document.getElementById("go").onclick = unlock;
+  pinEl.addEventListener("keydown", e => { if (e.key === "Enter") unlock(); });
+
+  function openDeck(){
+    gate.style.display = "none";
+    panel.style.display = "block";
+    whoEl.textContent = role;
+    buildChips(); buildBoard();
+    connect();
+  }
+  if (role) openDeck();
+
+  /* ---- status ---- */
+  function setStatus(live, text){
+    dot.className = "dot " + (live ? "live" : "dead");
+    stat.textContent = text;
+  }
+  window.setStatus = setStatus;
+  function paintStatus(){
+    const st = channel ? channel.presenceState() : {};
+    const overlayUp = Object.values(st).flat().some(m => m.role === "overlay");
+    setStatus(overlayUp, overlayUp ? "Overlay live" : "Overlay not open");
+  }
+  window.paintStatus = paintStatus;
+
+  /* ---- chips ---- */
+  function buildChips(){
+    const sWrap = document.getElementById("styles");
+    [["As set",null],["Slam","slam"],["Drop","drop"],["Corner","corner"],["Fly by","sweep"]]
+      .forEach(([label,val]) => {
+        const b = document.createElement("button");
+        b.className = "chip"; b.textContent = label;
+        b.setAttribute("aria-pressed", String(pickStyle === val));
+        b.onclick = () => { pickStyle = val; [...sWrap.children].forEach(c => c.setAttribute("aria-pressed","false")); b.setAttribute("aria-pressed","true"); };
+        sWrap.appendChild(b);
+      });
+    const hWrap = document.getElementById("holds");
+    [["1s",1000],["2.5s",2500],["5s",5000],["10s",10000]].forEach(([label,val]) => {
+      const b = document.createElement("button");
+      b.className = "chip"; b.textContent = label;
+      b.setAttribute("aria-pressed", String(pickHold === val));
+      b.onclick = () => { pickHold = val; [...hWrap.children].forEach(c => c.setAttribute("aria-pressed","false")); b.setAttribute("aria-pressed","true"); };
+      hWrap.appendChild(b);
+    });
+  }
+
+  /* ---- board ---- */
+  function buildBoard(){
+    board.innerHTML = "";
+    SLAMS.forEach(s => {
+      const t = document.createElement("div");
+      t.className = "tile";
+      t.style.setProperty("--cd", COOLDOWN + "ms");
+      const im = document.createElement("img");
+      im.src = s.src; im.alt = "";
+      im.onerror = () => { im.remove(); const d = document.createElement("div"); d.className = "noimg"; d.textContent = "NO FILE"; t.prepend(d); };
+      t.appendChild(im);
+      const cap = document.createElement("div");
+      cap.className = "cap"; cap.textContent = s.label;
+      t.appendChild(cap);
+      const arm = document.createElement("div");
+      arm.className = "arm";
+      t.appendChild(arm);
+      t.onclick = () => shoot(s, t);
+      board.appendChild(t);
+    });
+  }
+
+  async function shoot(s, tile){
+    if (tile.classList.contains("locked")) return;
+    const payload = {
+      src:   new URL(s.src, location.href).href,
+      style: pickStyle || s.style || "slam",
+      size:  s.size || 32,
+      hold:  pickHold
+    };
+    try{
+      await channel.send({ type:"broadcast", event:"slam", payload });
+    }catch(e){ console.error(e); }
+
+    tile.classList.add("locked","fired");
+    void tile.offsetWidth;
+    setTimeout(() => tile.classList.remove("locked","fired"), COOLDOWN);
+
+    addLog(s.label);
+    if (navigator.vibrate) navigator.vibrate(18);
+  }
+
+  document.getElementById("kill").onclick = async () => {
+    try{ await channel.send({ type:"broadcast", event:"clear", payload:{} }); }catch(e){}
+    addLog("Cleared");
+    if (navigator.vibrate) navigator.vibrate([12,40,12]);
+  };
+
+  function addLog(name){
+    const d = new Date();
+    const t = String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0") + ":" + String(d.getSeconds()).padStart(2,"0");
+    shots.unshift({ t, name });
+    shots.splice(8);
+    logEl.innerHTML = "";
+    shots.forEach(s => {
+      const l = document.createElement("div");
+      l.className = "line";
+      l.innerHTML = '<span class="t"></span><span class="n"></span>';
+      l.querySelector(".t").textContent = s.t;
+      l.querySelector(".n").textContent = s.name;
+      logEl.appendChild(l);
+    });
+  }
+}
+
+/* overlay connects with no gate */
+if (IS_OVERLAY) connect();
+</script>
+</body>
+</html>

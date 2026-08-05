@@ -619,7 +619,7 @@ function runBridge(){
    ========================================================== */
 var PIN=localStorage.getItem("slam_pin")||"", ROLE=localStorage.getItem("slam_role")||"";
 var ST={ok:false,scenes:[],current:"",items:[]};
-var selId=null, bridgeUp=false;
+var selId=null, bridgeUp=false, dragging=false;
 
 function getRole(pin){ return sb.rpc("pq_role",{p_pin:pin}).then(function(r){return r.error?null:r.data;}); }
 function cmd(p){ if(channel){ if(!p.scene) p.scene=ST.current; try{ channel.send({type:"broadcast",event:"cmd",payload:p}); }catch(e){} } }
@@ -743,6 +743,7 @@ function renderDeck(){
           x0:parseFloat(el.getAttribute("data-x"))||0,y0:parseFloat(el.getAttribute("data-y"))||0,
           w0:parseFloat(el.getAttribute("data-w"))||0,h0:parseFloat(el.getAttribute("data-h"))||0};
     try{ map.setPointerCapture(e.pointerId); }catch(err){}
+    dragging=true;
     e.preventDefault();
   });
 
@@ -765,7 +766,7 @@ function renderDeck(){
   });
 
   function endDrag(e){
-    if(!drag)return;
+    if(!drag){ dragging=false; return; }
     var cw=ST.cw||1920, ch=ST.ch||1080;
     if(drag.mode==="move"){
       var dx=(e.clientX-drag.ox)/drag.r.width*cw;
@@ -774,10 +775,11 @@ function renderDeck(){
     }else if(drag.last){
       cmd({cmd:"box",id:drag.id,x:drag.last.x,y:drag.last.y,w:drag.last.w,h:drag.last.h});
     }
-    drag=null;
+    drag=null; dragging=false;
+    setTimeout(function(){ cmd({cmd:"ping"}); },400);
   }
   map.addEventListener("pointerup",endDrag);
-  map.addEventListener("pointercancel",function(){ drag=null; paint(); });
+  map.addEventListener("pointercancel",function(){ drag=null; dragging=false; paint(); });
 
   var undoBtn=document.getElementById("undo");
   undoBtn.onclick=function(){ cmd({cmd:"undo"}); };
@@ -881,6 +883,7 @@ function renderDeck(){
 }
 
 function paint(){
+  if(dragging) return;
   var mp=document.getElementById("map");
   if(mp){
     var cw=ST.cw||1920, ch=ST.ch||1080;

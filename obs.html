@@ -78,6 +78,8 @@ body.bridge::after{display:none}
 .mi.sel{border-color:var(--electric);background:rgba(63,198,255,.14);z-index:5;cursor:grabbing}
 .mi.sel span{color:var(--electric)}
 .mi.off{opacity:.32;border-style:dashed}
+.mi.stray{border-color:var(--hot);border-style:dotted;background:rgba(255,46,95,.10)}
+.mi.stray span{color:var(--hot)}
 .mapempty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   font-size:10px;letter-spacing:.18em;color:var(--dimmer);text-transform:uppercase}
 .maphint{font-size:9px;letter-spacing:.14em;color:var(--dimmer);text-transform:uppercase;margin-top:6px;
@@ -86,6 +88,18 @@ body.bridge::after{display:none}
 .tin{width:100%;background:var(--panel);border:1px solid var(--line2);color:var(--text);font:inherit;
   font-size:13px;padding:12px}
 .tin:focus{outline:none;border-color:var(--hot)}
+.undobtn{flex:1;background:var(--panel);border:1px solid var(--line2);color:var(--dim);font:inherit;
+  font-size:11px;letter-spacing:.18em;text-transform:uppercase;padding:13px;cursor:pointer;transition:.15s}
+.undobtn:hover{border-color:var(--electric);color:var(--electric)}
+.undobtn.armed{border-color:var(--electric);color:var(--electric)}
+.undobtn:disabled{opacity:.35;cursor:default}
+.buildpanel{border:1px solid rgba(63,198,255,.32);padding:16px;background:rgba(63,198,255,.03)}
+.buildpanel .setlab{color:var(--electric)}
+.buildbtn{width:100%;margin-top:8px;background:var(--electric);color:#000;border:none;font:inherit;
+  font-weight:700;font-size:12px;letter-spacing:.18em;text-transform:uppercase;padding:14px;cursor:pointer;transition:.15s}
+.buildbtn:hover{filter:brightness(1.12)}
+.buildbtn.ghost{background:transparent;border:1px solid var(--line2);color:var(--dim);font-weight:500}
+.buildbtn.ghost:hover{border-color:var(--electric);color:var(--electric);filter:none}
 .droppanel{border:1px solid rgba(255,46,95,.35);padding:16px;background:rgba(255,46,95,.03)}
 .droppanel .setlab{color:var(--hot)}
 .dropbtn{width:100%;margin-top:8px;background:var(--hot);color:#000;border:none;font:inherit;font-weight:700;
@@ -209,7 +223,17 @@ function runBridge(){
   document.body.className="bridge";
   var pw=rawPw();
   var ws=null, obsReady=false, reqId=0, pending={}, canvas={w:1920,h:1080};
-  var curScene="", deckHere=false, lastErr="", textKind="";
+  var curScene="", deckHere=false, lastErr="", textKind="", kinds=[];
+  var undoStack=[];
+  function pushUndo(label,fn){
+    undoStack.push({label:label,fn:fn});
+    if(undoStack.length>25) undoStack.shift();
+    send("undo",{n:undoStack.length,last:label});
+  }
+  function pickKind(prefix){
+    for(var i=0;i<kinds.length;i++) if(kinds[i].indexOf(prefix)===0) return kinds[i];
+    return "";
+  }
 
   app.innerHTML='<div class="bwrap"><div class="bcard"><h1>PR<span class="z">0</span>CESS_LIVE // BRIDGE</h1>'+
     '<div class="brow"><span class="k">OBS</span><span class="v" id="b_obs">connecting</span></div>'+
@@ -252,8 +276,8 @@ function runBridge(){
           if(v){ canvas.w=v.baseWidth||1920; canvas.h=v.baseHeight||1080; }
         });
         obs("GetInputKindList",{}).then(function(r){
-          var ks=((r&&r.inputKinds)||[]).filter(function(k){ return k.indexOf("text_")===0; });
-          textKind=ks.sort().pop()||"";
+          kinds=((r&&r.inputKinds)||[]);
+          textKind=kinds.filter(function(k){ return k.indexOf("text_")===0; }).sort().pop()||"";
         });
         pushState();
       }
@@ -311,9 +335,7 @@ function runBridge(){
             }
             if(!w||w<1) w=canvas.w*0.08;
             if(!h||h<1) h=canvas.h*0.08;
-            var a=(bt!=="OBS_BOUNDS_NONE"&&typeof t.boundsAlignment==="number")
-                   ? t.boundsAlignment
-                   : ((typeof t.alignment==="number")?t.alignment:5);
+            var a=(typeof t.alignment==="number")?t.alignment:5;
             var x=t.positionX||0, y=t.positionY||0;
             if(a&2) x=x-w; else if(!(a&1)) x=x-w/2;
             if(a&8) y=y-h; else if(!(a&4)) y=y-h/2;
@@ -343,6 +365,39 @@ function runBridge(){
         })).then(function(all){
           send("raw",{canvas:canvas.w+"x"+canvas.h,scene:p.scene,items:all});
         });
+      });
+      return;
+    }
+    if(p.cmd==="create"){
+      var nm=(p.name||"").trim()||("SOURCE "+Date.now());
+      var kind="", settings={};
+      if(p.kind==="browser"){
+        kind=pickKind("browser_source");
+        settings={url:p.val,width:p.w||1920,height:p.h||1080};
+      }else if(p.kind==="media"){
+        kind=pickKind("ffmpeg_source");
+        settings={is_local_file:false,input:p.val,looping:true,restart_on_activate:true};
+      }else if(p.kind==="text"){
+        kind=textKind;
+        settings={text:String(p.val||""),font:{face:"Arial",size:96,style:"Bold"}};
+      }else if(p.kind==="color"){
+        kind=pickKind("color_source");
+        settings={width:Math.round(canvas.w/2),height:Math.round(canvas.h/2),color:4278190335};
+      }
+      if(!kind){ note("this OBS has no "+p.kind+" source"); return; }
+      obs("CreateInput",{sceneName:p.scene,inputName:nm,inputKind:kind,
+        inputSettings:settings,sceneItemEnabled:true}).then(function(r){
+        if(!r){ note("create failed: "+lastErr); return; }
+        note("added "+nm);
+        pushUndo("add source",function(){ obs("RemoveInput",{inputName:nm}); });
+        schedulePush();
+      });
+      return;
+    }
+    if(p.cmd==="del"){
+      obs("RemoveInput",{inputName:p.name}).then(function(r){
+        note(r?("removed "+p.name):("remove failed: "+lastErr));
+        schedulePush();
       });
       return;
     }
@@ -385,14 +440,40 @@ function runBridge(){
       });
       return;
     }
-    if(p.cmd==="scene"){ obs("SetCurrentProgramScene",{sceneName:p.scene}).then(schedulePush); return; }
+    if(p.cmd==="undo"){
+      var u=undoStack.pop();
+      if(!u){ note("nothing to undo"); send("undo",{n:0,last:""}); return; }
+      note("undid "+u.label);
+      u.fn();
+      send("undo",{n:undoStack.length,last:undoStack.length?undoStack[undoStack.length-1].label:""});
+      setTimeout(schedulePush,300);
+      return;
+    }
+    if(p.cmd==="scene"){
+      var wasScene=curScene;
+      if(wasScene&&wasScene!==p.scene){
+        pushUndo("scene change",function(){ obs("SetCurrentProgramScene",{sceneName:wasScene}); });
+      }
+      obs("SetCurrentProgramScene",{sceneName:p.scene}).then(schedulePush);
+      return;
+    }
     if(p.cmd==="vis"){
+      var wasOn=!p.on, vsc=p.scene, vid=p.id;
+      pushUndo(p.on?"show":"hide",function(){
+        obs("SetSceneItemEnabled",{sceneName:vsc,sceneItemId:vid,sceneItemEnabled:wasOn});
+      });
       obs("SetSceneItemEnabled",{sceneName:p.scene,sceneItemId:p.id,sceneItemEnabled:!!p.on}).then(schedulePush);
       return;
     }
     if(p.cmd==="move"||p.cmd==="scale"||p.cmd==="snap"||p.cmd==="place"){
       obs("GetSceneItemTransform",{sceneName:p.scene,sceneItemId:p.id}).then(function(r){
         if(!r||!r.sceneItemTransform)return;
+        var prev={positionX:r.sceneItemTransform.positionX,positionY:r.sceneItemTransform.positionY,
+                  scaleX:r.sceneItemTransform.scaleX,scaleY:r.sceneItemTransform.scaleY};
+        var psc=p.scene, pid=p.id;
+        pushUndo(p.cmd==="scale"?"resize":"move",function(){
+          obs("SetSceneItemTransform",{sceneName:psc,sceneItemId:pid,sceneItemTransform:prev});
+        });
         var t=r.sceneItemTransform, nt={};
         if(p.cmd==="place"){
           var pw2=(t.sourceWidth||0)*t.scaleX, ph2=(t.sourceHeight||0)*t.scaleY;
@@ -481,6 +562,14 @@ function cmd(p){ if(channel){ if(!p.scene) p.scene=ST.current; try{ channel.send
 function deckConnect(){
   channel=sb.channel(CHANNEL,{config:{broadcast:{self:false},presence:{key:"deck-"+Math.random().toString(36).slice(2,7)}}});
   channel.on("broadcast",{event:"state"},function(m){ ST=m.payload||ST; paint(); });
+  channel.on("broadcast",{event:"undo"},function(m){
+    var b=document.getElementById("undo");
+    if(!b||!m.payload)return;
+    var n=m.payload.n||0;
+    b.disabled=(n===0);
+    b.className="undobtn"+(n?" armed":"");
+    b.textContent=n?("\u21B6 Undo "+(m.payload.last?m.payload.last:"")+" ("+n+")"):"\u21B6 Nothing to undo";
+  });
   channel.on("broadcast",{event:"raw"},function(m){
     var h=document.getElementById("maphint");
     var box=document.getElementById("rawout");
@@ -520,10 +609,23 @@ function renderDeck(){
     '<div class="status"><span class="dot" id="dot"></span><span id="stat">Connecting</span><span class="who" id="who"></span></div>'+
     '<div><div class="setlab">Layout</div><div class="map" id="map"></div><div class="maphint" id="maphint">Drag a box to move it</div>'+
       '<textarea id="rawout" readonly style="display:none;width:100%;min-height:130px;margin-top:8px;background:var(--void);border:1px solid var(--line2);color:var(--electric);font:inherit;font-size:10px;padding:10px;resize:vertical"></textarea>'+
+      '<div style="display:flex;gap:6px;margin-top:8px"><button class="undobtn" id="undo">\u21B6 Undo</button></div>'+
       '<div style="text-align:center;margin-top:4px"><a href="#" id="diag" style="font-size:9px;letter-spacing:.14em;color:var(--dimmer);text-decoration:none;text-transform:uppercase">boxes wrong? read them</a></div></div>'+
     '<div><div class="setlab">Scene</div><div class="chips" id="scenes"></div></div>'+
     '<div><div class="setlab">Sources</div><div id="srcs"></div></div>'+
     '<div><div class="setlab">Move</div><div id="mover"></div></div>'+
+    (ROLE==="owner"
+      ? '<div class="buildpanel">'+
+          '<div class="setlab">Add a source \u2014 owner only</div>'+
+          '<div class="chips" id="b_kind" style="margin-bottom:10px"></div>'+
+          '<input class="tin" id="b_name" type="text" maxlength="40" placeholder="Name it">'+
+          '<input class="tin" id="b_val" type="text" placeholder="URL" style="margin-top:8px">'+
+          '<button class="buildbtn" id="b_add">Add to this scene</button>'+
+          '<button class="buildbtn ghost" id="b_slam">Add the slam overlay</button>'+
+          '<button class="buildbtn ghost" id="b_del">Delete selected source</button>'+
+          '<div class="dropnote" id="b_note">Goes on whatever scene is live and stays there.</div>'+
+        '</div>'
+      : '')+
     (ROLE==="owner"
       ? '<div class="droppanel">'+
           '<div class="setlab">Drop \u2014 owner only</div>'+
@@ -578,7 +680,54 @@ function renderDeck(){
   map.addEventListener("pointerup",endDrag);
   map.addEventListener("pointercancel",function(){ drag=null; paint(); });
 
+  var undoBtn=document.getElementById("undo");
+  undoBtn.onclick=function(){ cmd({cmd:"undo"}); };
+
   if(ROLE==="owner"){
+    var bKind="browser";
+    var kw=document.getElementById("b_kind");
+    var placeholders={browser:"URL for the page",media:"Direct .mp4 / .webm link",
+                      text:"What it should say",color:"(no value needed)"};
+    [["Browser","browser"],["Media","media"],["Text","text"],["Color","color"]].forEach(function(p){
+      var b=document.createElement("button");
+      b.className="chip"; b.textContent=p[0];
+      b.setAttribute("aria-pressed",String(bKind===p[1]));
+      b.onclick=function(){ bKind=p[1];
+        Array.prototype.forEach.call(kw.children,function(c){c.setAttribute("aria-pressed","false");});
+        b.setAttribute("aria-pressed","true");
+        document.getElementById("b_val").placeholder=placeholders[bKind];
+      };
+      kw.appendChild(b);
+    });
+    function bnote(t){
+      var n=document.getElementById("b_note");
+      n.textContent=t;
+      setTimeout(function(){ n.textContent="Goes on whatever scene is live and stays there."; },2600);
+    }
+    document.getElementById("b_add").onclick=function(){
+      var nm=document.getElementById("b_name").value.trim();
+      var vl=document.getElementById("b_val").value.trim();
+      if(!nm){ bnote("Give it a name"); return; }
+      if(bKind!=="color"&&!vl){ bnote("Needs a value"); return; }
+      if((bKind==="browser"||bKind==="media")&&!/^https?:\/\//i.test(vl)){ bnote("Needs an http link"); return; }
+      cmd({cmd:"create",kind:bKind,name:nm,val:vl});
+      document.getElementById("b_name").value=""; document.getElementById("b_val").value="";
+      bnote("Added");
+    };
+    document.getElementById("b_slam").onclick=function(){
+      cmd({cmd:"create",kind:"browser",name:"SLAM OVERLAY",
+           val:"https://nobeatsattached.github.io/pr0cess-slam/#overlay"});
+      bnote("Slam overlay added");
+    };
+    document.getElementById("b_del").onclick=function(){
+      if(selId===null){ bnote("Select a source first"); return; }
+      var f=null;
+      ST.items.forEach(function(it){ if(it.id===selId) f=it.name; });
+      if(!f){ bnote("Can\u2019t find that one"); return; }
+      cmd({cmd:"del",name:f});
+      bnote("Deleted "+f+" \u2014 undo won\u2019t bring it back");
+    };
+
     var dropSecs=6;
     var sw2=document.getElementById("d_secs");
     [["3s",3],["6s",6],["15s",15],["stays",0]].forEach(function(p){
@@ -630,6 +779,8 @@ function paint(){
     ST.items.slice().reverse().forEach(function(it){
       var d=document.createElement("div");
       d.className="mi"+(it.id===selId?" sel":"")+(it.on?"":" off");
+      var offCanvas=(it.x+it.w<0)||(it.y+it.h<0)||(it.x>cw)||(it.y>ch);
+      if(offCanvas) d.className+=" stray";
       d.setAttribute("data-id",it.id);
       d.style.left=((it.x||0)/cw*100)+"%";
       d.style.top=((it.y||0)/ch*100)+"%";

@@ -78,6 +78,8 @@ body.bridge::after{display:none}
 .mi.sel{border-color:var(--electric);background:rgba(63,198,255,.14);z-index:5;cursor:grabbing}
 .mi.sel span{color:var(--electric)}
 .mi.off{opacity:.32;border-style:dashed}
+.mapempty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:10px;letter-spacing:.18em;color:var(--dimmer);text-transform:uppercase}
 .maphint{font-size:9px;letter-spacing:.14em;color:var(--dimmer);text-transform:uppercase;margin-top:6px;text-align:center}
 
 .gatebox{max-width:280px;margin:0 auto;width:100%}
@@ -274,18 +276,27 @@ function runBridge(){
       curScene=cur;
       var scenes=(sl.scenes||[]).map(function(s){return s.sceneName;}).reverse();
       obs("GetSceneItemList",{sceneName:cur}).then(function(il){
-        var items=((il&&il.sceneItems)||[]).map(function(it){
-          var t=it.sceneItemTransform||{};
-          var w=t.width||((t.sourceWidth||0)*(t.scaleX||1));
-          var h=t.height||((t.sourceHeight||0)*(t.scaleY||1));
-          var a=(typeof t.alignment==="number")?t.alignment:5;
-          var x=t.positionX||0, y=t.positionY||0;
-          if(a&2) x=x-w; else if(!(a&1)) x=x-w/2;
-          if(a&8) y=y-h; else if(!(a&4)) y=y-h/2;
-          return {id:it.sceneItemId,name:it.sourceName,on:it.sceneItemEnabled!==false,
-                  x:Math.round(x),y:Math.round(y),w:Math.round(w),h:Math.round(h)};
-        }).reverse();
-        send("state",{ok:true,scenes:scenes,current:cur,items:items,cw:canvas.w,ch:canvas.h});
+        var raw=((il&&il.sceneItems)||[]).slice().reverse();
+        if(!raw.length){ send("state",{ok:true,scenes:scenes,current:cur,items:[],cw:canvas.w,ch:canvas.h}); return; }
+        var jobs=raw.map(function(it){
+          return obs("GetSceneItemTransform",{sceneName:cur,sceneItemId:it.sceneItemId})
+          .then(function(tr){
+            var t=(tr&&tr.sceneItemTransform)||it.sceneItemTransform||{};
+            var w=t.width||((t.sourceWidth||0)*(t.scaleX||1));
+            var h=t.height||((t.sourceHeight||0)*(t.scaleY||1));
+            if(!w||w<1) w=canvas.w*0.08;
+            if(!h||h<1) h=canvas.h*0.08;
+            var a=(typeof t.alignment==="number")?t.alignment:5;
+            var x=t.positionX||0, y=t.positionY||0;
+            if(a&2) x=x-w; else if(!(a&1)) x=x-w/2;
+            if(a&8) y=y-h; else if(!(a&4)) y=y-h/2;
+            return {id:it.sceneItemId,name:it.sourceName,on:it.sceneItemEnabled!==false,
+                    x:Math.round(x),y:Math.round(y),w:Math.round(w),h:Math.round(h)};
+          });
+        });
+        Promise.all(jobs).then(function(items){
+          send("state",{ok:true,scenes:scenes,current:cur,items:items,cw:canvas.w,ch:canvas.h});
+        });
       });
     });
   }
@@ -468,15 +479,20 @@ function paint(){
   if(mp){
     var cw=ST.cw||1920, ch=ST.ch||1080;
     mp.innerHTML="";
+    if(!ST.items.length){
+      var e=document.createElement("div");
+      e.className="mapempty";
+      e.textContent=ST.ok?"No sources in this scene":"Waiting for the bridge";
+      mp.appendChild(e);
+    }
     ST.items.slice().reverse().forEach(function(it){
-      if(typeof it.x!=="number")return;
       var d=document.createElement("div");
       d.className="mi"+(it.id===selId?" sel":"")+(it.on?"":" off");
       d.setAttribute("data-id",it.id);
-      d.style.left=(it.x/cw*100)+"%";
-      d.style.top=(it.y/ch*100)+"%";
-      d.style.width=(it.w/cw*100)+"%";
-      d.style.height=(it.h/ch*100)+"%";
+      d.style.left=((it.x||0)/cw*100)+"%";
+      d.style.top=((it.y||0)/ch*100)+"%";
+      d.style.width=(Math.max(it.w||0,cw*0.04)/cw*100)+"%";
+      d.style.height=(Math.max(it.h||0,ch*0.04)/ch*100)+"%";
       var s=document.createElement("span"); s.textContent=it.name;
       d.appendChild(s);
       mp.appendChild(d);

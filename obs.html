@@ -83,6 +83,18 @@ body.bridge::after{display:none}
 .maphint{font-size:9px;letter-spacing:.14em;color:var(--dimmer);text-transform:uppercase;margin-top:6px;
   text-align:center;word-break:break-all;line-height:1.7}
 
+.tin{width:100%;background:var(--panel);border:1px solid var(--line2);color:var(--text);font:inherit;
+  font-size:13px;padding:12px}
+.tin:focus{outline:none;border-color:var(--hot)}
+.droppanel{border:1px solid rgba(255,46,95,.35);padding:16px;background:rgba(255,46,95,.03)}
+.droppanel .setlab{color:var(--hot)}
+.dropbtn{width:100%;margin-top:8px;background:var(--hot);color:#000;border:none;font:inherit;font-weight:700;
+  font-size:12px;letter-spacing:.18em;text-transform:uppercase;padding:14px;cursor:pointer;transition:.15s}
+.dropbtn:hover{filter:brightness(1.12)}
+.dropbtn.ghost{background:transparent;border:1px solid var(--line2);color:var(--dim);font-weight:500;margin-top:14px}
+.dropbtn.ghost:hover{border-color:var(--hot);color:var(--hot);filter:none}
+.dropnote{font-size:9px;letter-spacing:.12em;color:var(--dimmer);text-transform:uppercase;margin-top:10px;line-height:1.7}
+
 .gatebox{max-width:280px;margin:0 auto;width:100%}
 .gatebox input{width:100%;background:var(--panel);border:1px solid var(--line2);color:var(--text);font:inherit;
   font-size:15px;padding:12px;text-align:center}
@@ -197,7 +209,7 @@ function runBridge(){
   document.body.className="bridge";
   var pw=rawPw();
   var ws=null, obsReady=false, reqId=0, pending={}, canvas={w:1920,h:1080};
-  var curScene="", deckHere=false, lastErr="";
+  var curScene="", deckHere=false, lastErr="", textKind="";
 
   app.innerHTML='<div class="bwrap"><div class="bcard"><h1>PR<span class="z">0</span>CESS_LIVE // BRIDGE</h1>'+
     '<div class="brow"><span class="k">OBS</span><span class="v" id="b_obs">connecting</span></div>'+
@@ -238,6 +250,10 @@ function runBridge(){
         obsReady=true; setRow("b_obs","connected","ok");
         obs("GetVideoSettings",{}).then(function(v){
           if(v){ canvas.w=v.baseWidth||1920; canvas.h=v.baseHeight||1080; }
+        });
+        obs("GetInputKindList",{}).then(function(r){
+          var ks=((r&&r.inputKinds)||[]).filter(function(k){ return k.indexOf("text_")===0; });
+          textKind=ks.sort().pop()||"";
         });
         pushState();
       }
@@ -319,8 +335,53 @@ function runBridge(){
     note(p.cmd);
     if(p.cmd==="ping"){ pushState(); return; }
     if(p.cmd==="raw"){
-      obs("GetSceneItemTransform",{sceneName:p.scene,sceneItemId:p.id}).then(function(r){
-        send("raw",{t:(r&&r.sceneItemTransform)||{err:lastErr||"none"}});
+      obs("GetSceneItemList",{sceneName:p.scene}).then(function(il){
+        var raw=((il&&il.sceneItems)||[]);
+        Promise.all(raw.map(function(it){
+          return obs("GetSceneItemTransform",{sceneName:p.scene,sceneItemId:it.sceneItemId})
+            .then(function(r){ return {n:it.sourceName,t:(r&&r.sceneItemTransform)||null}; });
+        })).then(function(all){
+          send("raw",{canvas:canvas.w+"x"+canvas.h,scene:p.scene,items:all});
+        });
+      });
+      return;
+    }
+    if(p.cmd==="text"){
+      if(!textKind){ note("no text source available"); return; }
+      var tn="PRC_DROP_"+Date.now();
+      obs("CreateInput",{sceneName:p.scene,inputName:tn,inputKind:textKind,
+        inputSettings:{text:String(p.msg||""),font:{face:"Arial",size:p.size||96,style:"Bold"}},
+        sceneItemEnabled:true}).then(function(r){
+        if(!r){ note("text failed: "+lastErr); return; }
+        obs("SetSceneItemTransform",{sceneName:p.scene,sceneItemId:r.sceneItemId,
+          sceneItemTransform:{alignment:0,positionX:canvas.w/2,positionY:canvas.h/2}});
+        if(p.secs) setTimeout(function(){ obs("RemoveInput",{inputName:tn}).then(schedulePush); },p.secs*1000);
+        schedulePush();
+      });
+      return;
+    }
+    if(p.cmd==="media"){
+      var mn="PRC_DROP_"+Date.now();
+      obs("CreateInput",{sceneName:p.scene,inputName:mn,inputKind:"ffmpeg_source",
+        inputSettings:{is_local_file:false,input:String(p.url||""),looping:!!p.loop,
+                       restart_on_activate:true,clear_on_media_end:true},
+        sceneItemEnabled:true}).then(function(r){
+        if(!r){ note("media failed: "+lastErr); return; }
+        obs("SetSceneItemTransform",{sceneName:p.scene,sceneItemId:r.sceneItemId,
+          sceneItemTransform:{alignment:0,positionX:canvas.w/2,positionY:canvas.h/2,
+            boundsType:"OBS_BOUNDS_SCALE_INNER",boundsAlignment:0,
+            boundsWidth:Math.round(canvas.w*0.6),boundsHeight:Math.round(canvas.h*0.6)}});
+        if(p.secs) setTimeout(function(){ obs("RemoveInput",{inputName:mn}).then(schedulePush); },p.secs*1000);
+        schedulePush();
+      });
+      return;
+    }
+    if(p.cmd==="nuke"){
+      obs("GetInputList",{}).then(function(r){
+        ((r&&r.inputs)||[]).forEach(function(i){
+          if((i.inputName||"").indexOf("PRC_DROP_")===0) obs("RemoveInput",{inputName:i.inputName});
+        });
+        setTimeout(schedulePush,400);
       });
       return;
     }
@@ -422,7 +483,12 @@ function deckConnect(){
   channel.on("broadcast",{event:"state"},function(m){ ST=m.payload||ST; paint(); });
   channel.on("broadcast",{event:"raw"},function(m){
     var h=document.getElementById("maphint");
-    if(h&&m.payload) h.textContent=JSON.stringify(m.payload.t);
+    var box=document.getElementById("rawout");
+    if(!box||!m.payload)return;
+    box.style.display="block";
+    box.value=JSON.stringify(m.payload);
+    if(h) h.textContent="Copy the box below and send it over";
+    box.focus(); box.select();
   });
   channel.on("presence",{event:"sync"},function(){
     var st=channel.presenceState(), f=false;
@@ -452,19 +518,33 @@ function renderDeck(){
   '<div class="wrap">'+
     '<div class="mast"><div class="brand">PR<span class="z">0</span>CESS_LIVE <span class="z">//</span> OBS CONTROL</div></div>'+
     '<div class="status"><span class="dot" id="dot"></span><span id="stat">Connecting</span><span class="who" id="who"></span></div>'+
-    '<div><div class="setlab">Layout</div><div class="map" id="map"></div><div class="maphint" id="maphint">Drag a box to move it</div><div style="text-align:center;margin-top:4px"><a href="#" id="diag" style="font-size:9px;letter-spacing:.14em;color:var(--dimmer);text-decoration:none;text-transform:uppercase">box wrong? read it</a></div></div>'+
+    '<div><div class="setlab">Layout</div><div class="map" id="map"></div><div class="maphint" id="maphint">Drag a box to move it</div>'+
+      '<textarea id="rawout" readonly style="display:none;width:100%;min-height:130px;margin-top:8px;background:var(--void);border:1px solid var(--line2);color:var(--electric);font:inherit;font-size:10px;padding:10px;resize:vertical"></textarea>'+
+      '<div style="text-align:center;margin-top:4px"><a href="#" id="diag" style="font-size:9px;letter-spacing:.14em;color:var(--dimmer);text-decoration:none;text-transform:uppercase">boxes wrong? read them</a></div></div>'+
     '<div><div class="setlab">Scene</div><div class="chips" id="scenes"></div></div>'+
     '<div><div class="setlab">Sources</div><div id="srcs"></div></div>'+
     '<div><div class="setlab">Move</div><div id="mover"></div></div>'+
+    (ROLE==="owner"
+      ? '<div class="droppanel">'+
+          '<div class="setlab">Drop \u2014 owner only</div>'+
+          '<input class="tin" id="d_text" type="text" maxlength="80" placeholder="Type onto his screen">'+
+          '<button class="dropbtn" id="d_send">Send text</button>'+
+          '<input class="tin" id="d_url" type="url" placeholder="Direct .mp4 / .webm / .gif link" style="margin-top:16px">'+
+          '<button class="dropbtn" id="d_play">Play it</button>'+
+          '<div class="setlab" style="margin-top:16px;margin-bottom:6px">Gone after</div>'+
+          '<div class="chips" id="d_secs"></div>'+
+          '<button class="dropbtn ghost" id="d_nuke">Remove all drops</button>'+
+          '<div class="dropnote" id="d_note">Lands on whatever scene is live right now.</div>'+
+        '</div>'
+      : '')+
     '<div class="hint help"><a href="#" id="refresh">refresh</a><a href="#" id="lock" class="sub">lock</a></div>'+
   '</div>';
   document.getElementById("who").textContent=ROLE;
   document.getElementById("refresh").onclick=function(e){ e.preventDefault(); cmd({cmd:"ping"}); };
   document.getElementById("diag").onclick=function(e){
     e.preventDefault();
-    if(selId===null){ document.getElementById("maphint").textContent="Select a source first"; return; }
     document.getElementById("maphint").textContent="reading\u2026";
-    cmd({cmd:"raw",id:selId});
+    cmd({cmd:"raw"});
   };
 
   var map=document.getElementById("map"), drag=null;
@@ -497,6 +577,40 @@ function renderDeck(){
   }
   map.addEventListener("pointerup",endDrag);
   map.addEventListener("pointercancel",function(){ drag=null; paint(); });
+
+  if(ROLE==="owner"){
+    var dropSecs=6;
+    var sw2=document.getElementById("d_secs");
+    [["3s",3],["6s",6],["15s",15],["stays",0]].forEach(function(p){
+      var b=document.createElement("button");
+      b.className="chip"; b.textContent=p[0];
+      b.setAttribute("aria-pressed",String(dropSecs===p[1]));
+      b.onclick=function(){ dropSecs=p[1];
+        Array.prototype.forEach.call(sw2.children,function(c){c.setAttribute("aria-pressed","false");});
+        b.setAttribute("aria-pressed","true"); };
+      sw2.appendChild(b);
+    });
+    function flash(t){
+      var n=document.getElementById("d_note");
+      n.textContent=t;
+      setTimeout(function(){ n.textContent="Lands on whatever scene is live right now."; },2500);
+    }
+    document.getElementById("d_send").onclick=function(){
+      var el=document.getElementById("d_text"), v=el.value.trim();
+      if(!v){ flash("Type something first"); return; }
+      cmd({cmd:"text",msg:v,secs:dropSecs});
+      el.value=""; flash("Sent");
+    };
+    document.getElementById("d_play").onclick=function(){
+      var el=document.getElementById("d_url"), v=el.value.trim();
+      if(!/^https?:\/\//i.test(v)){ flash("Needs a direct http link"); return; }
+      cmd({cmd:"media",url:v,secs:dropSecs});
+      el.value=""; flash("Playing");
+    };
+    document.getElementById("d_nuke").onclick=function(){
+      cmd({cmd:"nuke"}); flash("Cleared");
+    };
+  }
   document.getElementById("lock").onclick=function(e){ e.preventDefault();
     PIN="";ROLE="";localStorage.removeItem("slam_pin");localStorage.removeItem("slam_role");render(); };
   paint(); paintStatus(); deckConnect();

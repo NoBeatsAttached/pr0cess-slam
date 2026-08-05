@@ -80,7 +80,8 @@ body.bridge::after{display:none}
 .mi.off{opacity:.32;border-style:dashed}
 .mapempty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   font-size:10px;letter-spacing:.18em;color:var(--dimmer);text-transform:uppercase}
-.maphint{font-size:9px;letter-spacing:.14em;color:var(--dimmer);text-transform:uppercase;margin-top:6px;text-align:center}
+.maphint{font-size:9px;letter-spacing:.14em;color:var(--dimmer);text-transform:uppercase;margin-top:6px;
+  text-align:center;word-break:break-all;line-height:1.7}
 
 .gatebox{max-width:280px;margin:0 auto;width:100%}
 .gatebox input{width:100%;background:var(--panel);border:1px solid var(--line2);color:var(--text);font:inherit;
@@ -282,11 +283,21 @@ function runBridge(){
           return obs("GetSceneItemTransform",{sceneName:cur,sceneItemId:it.sceneItemId})
           .then(function(tr){
             var t=(tr&&tr.sceneItemTransform)||it.sceneItemTransform||{};
-            var w=t.width||((t.sourceWidth||0)*(t.scaleX||1));
-            var h=t.height||((t.sourceHeight||0)*(t.scaleY||1));
+            var bt=t.boundsType||"OBS_BOUNDS_NONE";
+            var w,h;
+            if(bt!=="OBS_BOUNDS_NONE"&&t.boundsWidth){
+              w=t.boundsWidth; h=t.boundsHeight;
+            }else{
+              var sw=(t.sourceWidth||0)-(t.cropLeft||0)-(t.cropRight||0);
+              var sh=(t.sourceHeight||0)-(t.cropTop||0)-(t.cropBottom||0);
+              w=sw*(t.scaleX||1); h=sh*(t.scaleY||1);
+              if((!w||!h)&&t.width){ w=t.width; h=t.height; }
+            }
             if(!w||w<1) w=canvas.w*0.08;
             if(!h||h<1) h=canvas.h*0.08;
-            var a=(typeof t.alignment==="number")?t.alignment:5;
+            var a=(bt!=="OBS_BOUNDS_NONE"&&typeof t.boundsAlignment==="number")
+                   ? t.boundsAlignment
+                   : ((typeof t.alignment==="number")?t.alignment:5);
             var x=t.positionX||0, y=t.positionY||0;
             if(a&2) x=x-w; else if(!(a&1)) x=x-w/2;
             if(a&8) y=y-h; else if(!(a&4)) y=y-h/2;
@@ -307,6 +318,12 @@ function runBridge(){
     if(!p||!p.cmd)return;
     note(p.cmd);
     if(p.cmd==="ping"){ pushState(); return; }
+    if(p.cmd==="raw"){
+      obs("GetSceneItemTransform",{sceneName:p.scene,sceneItemId:p.id}).then(function(r){
+        send("raw",{t:(r&&r.sceneItemTransform)||{err:lastErr||"none"}});
+      });
+      return;
+    }
     if(p.cmd==="scene"){ obs("SetCurrentProgramScene",{sceneName:p.scene}).then(schedulePush); return; }
     if(p.cmd==="vis"){
       obs("SetSceneItemEnabled",{sceneName:p.scene,sceneItemId:p.id,sceneItemEnabled:!!p.on}).then(schedulePush);
@@ -386,7 +403,8 @@ function runBridge(){
     }
   });
   obsConnect();
-  setInterval(function(){ if(obsReady) pushState(); },3000);
+  setInterval(function(){ if(obsReady&&deckHere) pushState(); },3000);
+  setInterval(function(){ if(obsReady&&!deckHere) pushState(); },30000);
 }
 
 /* ==========================================================
@@ -402,6 +420,10 @@ function cmd(p){ if(channel){ if(!p.scene) p.scene=ST.current; try{ channel.send
 function deckConnect(){
   channel=sb.channel(CHANNEL,{config:{broadcast:{self:false},presence:{key:"deck-"+Math.random().toString(36).slice(2,7)}}});
   channel.on("broadcast",{event:"state"},function(m){ ST=m.payload||ST; paint(); });
+  channel.on("broadcast",{event:"raw"},function(m){
+    var h=document.getElementById("maphint");
+    if(h&&m.payload) h.textContent=JSON.stringify(m.payload.t);
+  });
   channel.on("presence",{event:"sync"},function(){
     var st=channel.presenceState(), f=false;
     Object.keys(st).forEach(function(k){ st[k].forEach(function(x){ if(x.role==="bridge") f=true; }); });
@@ -430,7 +452,7 @@ function renderDeck(){
   '<div class="wrap">'+
     '<div class="mast"><div class="brand">PR<span class="z">0</span>CESS_LIVE <span class="z">//</span> OBS CONTROL</div></div>'+
     '<div class="status"><span class="dot" id="dot"></span><span id="stat">Connecting</span><span class="who" id="who"></span></div>'+
-    '<div><div class="setlab">Layout</div><div class="map" id="map"></div><div class="maphint">Drag a box to move it</div></div>'+
+    '<div><div class="setlab">Layout</div><div class="map" id="map"></div><div class="maphint" id="maphint">Drag a box to move it</div><div style="text-align:center;margin-top:4px"><a href="#" id="diag" style="font-size:9px;letter-spacing:.14em;color:var(--dimmer);text-decoration:none;text-transform:uppercase">box wrong? read it</a></div></div>'+
     '<div><div class="setlab">Scene</div><div class="chips" id="scenes"></div></div>'+
     '<div><div class="setlab">Sources</div><div id="srcs"></div></div>'+
     '<div><div class="setlab">Move</div><div id="mover"></div></div>'+
@@ -438,6 +460,12 @@ function renderDeck(){
   '</div>';
   document.getElementById("who").textContent=ROLE;
   document.getElementById("refresh").onclick=function(e){ e.preventDefault(); cmd({cmd:"ping"}); };
+  document.getElementById("diag").onclick=function(e){
+    e.preventDefault();
+    if(selId===null){ document.getElementById("maphint").textContent="Select a source first"; return; }
+    document.getElementById("maphint").textContent="reading\u2026";
+    cmd({cmd:"raw",id:selId});
+  };
 
   var map=document.getElementById("map"), drag=null;
   map.addEventListener("pointerdown",function(e){

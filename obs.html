@@ -112,7 +112,12 @@ var SCALE_STEP=.06;
 var sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{realtime:{params:{eventsPerSecond:25}}});
 var app=document.getElementById("app");
 var qs=new URLSearchParams(location.search);
-var IS_BRIDGE=qs.has("pw");
+function rawPw(){
+  var m=location.search.match(/[?&]pw=([^&]*)/);
+  if(!m) return "";
+  try{ return decodeURIComponent(m[1]); }catch(e){ return m[1]; }
+}
+var IS_BRIDGE=/[?&]pw=/.test(location.search);
 var channel=null;
 
 /* ---------- tiny SHA-256 (works with or without crypto.subtle) ---------- */
@@ -174,7 +179,7 @@ function sha256b64(str){ return b64(sha256bytes(str)); }
    ========================================================== */
 function runBridge(){
   document.body.className="bridge";
-  var pw=qs.get("pw")||"";
+  var pw=rawPw();
   var ws=null, obsReady=false, reqId=0, pending={}, canvas={w:1920,h:1080};
 
   app.innerHTML='<div class="bwrap"><div class="bcard"><h1>PR<span class="z">0</span>CESS_LIVE // BRIDGE</h1>'+
@@ -190,8 +195,16 @@ function runBridge(){
     try{ ws=new WebSocket("ws://127.0.0.1:"+OBS_PORT); }
     catch(e){ setRow("b_obs","blocked","bad"); return; }
 
-    ws.onopen=function(){};
-    ws.onclose=function(){ obsReady=false; setRow("b_obs","disconnected","bad"); setTimeout(obsConnect,4000); };
+    ws.onopen=function(){ setRow("b_obs","handshaking"); };
+    ws.onclose=function(e){
+      obsReady=false;
+      var why="disconnected";
+      if(e&&e.code===4009) why="WRONG PASSWORD";
+      else if(e&&e.code===4008) why="handshake timed out";
+      else if(e&&e.code===1006) why="OBS not listening \u2014 is the server enabled?";
+      setRow("b_obs",why,"bad");
+      setTimeout(obsConnect,4000);
+    };
     ws.onerror=function(){ setRow("b_obs","can\u2019t reach OBS","bad"); };
     ws.onmessage=function(ev){
       var m; try{ m=JSON.parse(ev.data); }catch(e){ return; }

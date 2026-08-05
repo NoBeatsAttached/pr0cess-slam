@@ -12,7 +12,7 @@
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 :root{--void:#030303;--panel:#0B0B0C;--panel2:#111113;--line:#1A1A1D;--line2:#26262A;
   --text:#EDEDED;--dim:#8A8A92;--dimmer:#4A4A52;--electric:#3FC6FF;--hot:#FF2E5F;--go:#3FFF9E;
-  --hdr:56px;--tabs:58px;}
+  --hdr:56px;}
 html,body{height:100%}
 body{background:var(--void);color:var(--text);font-family:'JetBrains Mono',ui-monospace,monospace;
   font-weight:400;overscroll-behavior:none}
@@ -38,16 +38,15 @@ body.bridge{background:transparent}
 .ubtn:disabled{opacity:.4;cursor:default}
 .ubtn sup{font-size:8px;letter-spacing:0;margin-left:2px}
 
-.view{padding:calc(var(--hdr) + 20px) 16px calc(var(--tabs) + 34px);max-width:660px;margin:0 auto}
+.view{padding:calc(var(--hdr) + 22px) 18px 60px;max-width:1080px;margin:0 auto}
 
-.tabs{position:fixed;bottom:0;left:0;right:0;height:var(--tabs);z-index:20;display:flex;
-  background:rgba(3,3,3,.96);backdrop-filter:blur(8px);border-top:1px solid var(--line)}
-.tab{flex:1;background:transparent;border:none;border-right:1px solid var(--line);
-  color:var(--dimmer);font:inherit;font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;
-  cursor:pointer;transition:.15s;padding-bottom:env(safe-area-inset-bottom)}
-.tab:last-child{border-right:none}
-.tab:hover{color:var(--dim)}
-.tab.on{color:var(--electric);box-shadow:inset 0 2px 0 var(--electric);background:rgba(63,198,255,.05)}
+.grid{display:grid;grid-template-columns:1fr;gap:30px;align-items:start}
+@media(min-width:780px){.grid{grid-template-columns:1.4fr 1fr;gap:26px}}
+.grid2{display:grid;grid-template-columns:1fr;gap:26px;margin-top:34px;
+  border-top:1px solid var(--line);padding-top:26px}
+@media(min-width:780px){.grid2{grid-template-columns:1fr 1fr}}
+.sec{min-width:0}
+.sec+.sec{margin-top:26px}
 
 /* ---------- bits ---------- */
 .lab{font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--dimmer);margin-bottom:10px}
@@ -617,11 +616,11 @@ function runBridge(){
   setInterval(function(){ if(obsReady&&!deckHere) pushState(); },30000);
 }
 /* ==========================================================
-   DECK — control surface
+   DECK — one screen
    ========================================================== */
 var PIN=localStorage.getItem("slam_pin")||"", ROLE=localStorage.getItem("slam_role")||"";
 var ST={ok:false,scenes:[],current:"",items:[],cw:1920,ch:1080};
-var selId=null, bridgeUp=false, dragging=false, TAB="layout";
+var selId=null, bridgeUp=false, dragging=false;
 var SLAM_OVERLAY="https://nobeatsattached.github.io/pr0cess-slam/#overlay";
 
 function getRole(pin){ return sb.rpc("pq_role",{p_pin:pin}).then(function(r){return r.error?null:r.data;}); }
@@ -665,7 +664,6 @@ function paintStatus(){
   s.textContent=!bridgeUp?"bridge offline":(ST.ok?(ST.current||"connected"):"no OBS");
 }
 
-/* ---------- shell ---------- */
 function renderDeck(){
   if(!PIN||!ROLE){ renderGate(); return; }
   var owner=(ROLE==="owner");
@@ -677,59 +675,64 @@ function renderDeck(){
       '<button class="ubtn" id="undo" title="Nothing to undo">\u21B6<sup id="undon"></sup></button>'+
     '</div>'+
   '</header>'+
-  '<main class="view" id="view"></main>'+
-  '<nav class="tabs" id="tabs"></nav>';
+  '<main class="view">'+
 
-  var tabs=[["layout","Layout"],["sources","Sources"]];
-  if(owner) tabs.push(["build","Build"],["drop","Drop"]);
-  var tb=el("tabs");
-  tabs.forEach(function(t){
-    var b=document.createElement("button");
-    b.className="tab"+(TAB===t[0]?" on":"");
-    b.textContent=t[1];
-    b.onclick=function(){
-      TAB=t[0];
-      Array.prototype.forEach.call(tb.children,function(c){c.className="tab";});
-      b.className="tab on";
-      renderView();
-    };
-    tb.appendChild(b);
-  });
+    '<div class="sec"><div class="lab">Scene</div><div class="chips" id="scenes"></div></div>'+
+
+    '<div class="grid">'+
+      '<div>'+
+        '<div class="lab">Layout</div>'+
+        '<div class="map" id="map"></div>'+
+        '<div class="hint">Drag to move \u00B7 pull any edge or corner to stretch \u00B7 hold Shift to keep the ratio</div>'+
+        '<textarea id="rawout" readonly style="display:none"></textarea>'+
+      '</div>'+
+      '<div>'+
+        '<div class="lab">Sources</div><div id="srcs"></div>'+
+        '<div class="sec"><div class="lab">Nudge</div><div id="mover"></div></div>'+
+      '</div>'+
+    '</div>'+
+
+    (owner
+      ? '<div class="grid2">'+
+          '<div>'+
+            '<div class="lab">Add a source</div>'+
+            '<div class="chips" id="b_kind"></div>'+
+            '<input class="tin" id="b_name" type="text" maxlength="40" placeholder="Name it">'+
+            '<input class="tin" id="b_val" type="text" placeholder="URL for the page">'+
+            '<button class="btn" id="b_add">Add to this scene</button>'+
+            '<button class="btn ghost" id="b_slam">Add the slam overlay</button>'+
+            '<button class="btn ghost" id="b_del">Delete selected source</button>'+
+            '<div class="note" id="b_note">Lands on whatever scene is live and stays there.</div>'+
+          '</div>'+
+          '<div>'+
+            '<div class="lab">Drop something on his screen</div>'+
+            '<input class="tin" id="d_text" type="text" maxlength="80" placeholder="Type onto his screen">'+
+            '<button class="btn" id="d_send">Send text</button>'+
+            '<input class="tin" id="d_url" type="url" placeholder="Direct .mp4 / .webm / .gif link" style="margin-top:16px">'+
+            '<button class="btn" id="d_play">Play it</button>'+
+            '<div class="lab" style="margin-top:22px">Gone after</div><div class="chips" id="d_secs"></div>'+
+            '<button class="btn ghost" id="d_nuke">Remove all drops</button>'+
+            '<div class="note" id="d_note">Lands on whatever scene is live right now.</div>'+
+          '</div>'+
+        '</div>'
+      : '')+
+
+    '<div class="footlinks"><a href="#" id="refresh">refresh</a><a href="#" id="diag">raw</a><a href="#" id="lock">lock</a></div>'+
+  '</main>';
 
   el("undo").onclick=function(){ cmd({cmd:"undo"}); };
-  renderView();
-  paintStatus();
-  deckConnect();
-}
-
-function renderView(){
-  var v=el("view");
-  if(TAB==="layout") v.innerHTML=viewLayout();
-  if(TAB==="sources") v.innerHTML=viewSources();
-  if(TAB==="build") v.innerHTML=viewBuild();
-  if(TAB==="drop") v.innerHTML=viewDrop();
-  if(TAB==="layout") wireLayout();
-  if(TAB==="sources") wireSources();
-  if(TAB==="build") wireBuild();
-  if(TAB==="drop") wireDrop();
-  paint();
-}
-
-/* ---------- layout ---------- */
-function viewLayout(){
-  return '<div class="lab">Scene</div><div class="chips" id="scenes"></div>'+
-    '<div class="map" id="map"></div>'+
-    '<div class="hint">Drag to move \u00B7 pull any edge or corner to stretch \u00B7 hold Shift to keep the ratio</div>'+
-    '<textarea id="rawout" readonly style="display:none"></textarea>'+
-    '<div class="footlinks"><a href="#" id="refresh">refresh</a><a href="#" id="diag">raw</a><a href="#" id="lock">lock</a></div>';
-}
-
-function wireLayout(){
   el("refresh").onclick=function(e){ e.preventDefault(); cmd({cmd:"ping"}); };
   el("diag").onclick=function(e){ e.preventDefault(); cmd({cmd:"raw"}); };
   el("lock").onclick=function(e){ e.preventDefault();
     PIN="";ROLE="";localStorage.removeItem("slam_pin");localStorage.removeItem("slam_role");render(); };
 
+  wireMap();
+  if(owner){ wireBuild(); wireDrop(); }
+  paint(); paintStatus(); deckConnect();
+}
+
+/* ---------- map dragging ---------- */
+function wireMap(){
   var map=el("map"), drag=null;
 
   function calcBox(d,dx,dy,lock){
@@ -804,25 +807,7 @@ function wireLayout(){
   map.addEventListener("pointercancel",function(){ drag=null; dragging=false; paint(); });
 }
 
-/* ---------- sources ---------- */
-function viewSources(){
-  return '<div class="lab">Sources</div><div id="srcs"></div>'+
-    '<div class="lab" style="margin-top:22px">Nudge</div><div id="mover"></div>';
-}
-function wireSources(){}
-
 /* ---------- build ---------- */
-function viewBuild(){
-  return '<div class="lab">Add a source</div>'+
-    '<div class="chips" id="b_kind"></div>'+
-    '<input class="tin" id="b_name" type="text" maxlength="40" placeholder="Name it">'+
-    '<input class="tin" id="b_val" type="text" placeholder="URL for the page">'+
-    '<button class="btn" id="b_add">Add to this scene</button>'+
-    '<button class="btn ghost" id="b_slam">Add the slam overlay</button>'+
-    '<div class="lab" style="margin-top:26px">Danger</div>'+
-    '<button class="btn ghost" id="b_del">Delete selected source</button>'+
-    '<div class="note" id="b_note">Lands on whatever scene is live and stays there.</div>';
-}
 function wireBuild(){
   var bKind="browser";
   var kw=el("b_kind");
@@ -859,7 +844,7 @@ function wireBuild(){
   var armed=false, timer=null;
   el("b_del").onclick=function(){
     var btn=this;
-    if(selId===null){ bnote("Pick one on the Sources tab first"); return; }
+    if(selId===null){ bnote("Pick a source first"); return; }
     var f=null;
     ST.items.forEach(function(it){ if(it.id===selId) f=it.name; });
     if(!f){ bnote("Can\u2019t find that one"); return; }
@@ -876,16 +861,6 @@ function wireBuild(){
 }
 
 /* ---------- drop ---------- */
-function viewDrop(){
-  return '<div class="lab">Put something on his screen</div>'+
-    '<input class="tin" id="d_text" type="text" maxlength="80" placeholder="Type onto his screen">'+
-    '<button class="btn" id="d_send">Send text</button>'+
-    '<input class="tin" id="d_url" type="url" placeholder="Direct .mp4 / .webm / .gif link" style="margin-top:18px">'+
-    '<button class="btn" id="d_play">Play it</button>'+
-    '<div class="lab" style="margin-top:24px">Gone after</div><div class="chips" id="d_secs"></div>'+
-    '<button class="btn ghost" id="d_nuke" style="margin-top:20px">Remove all drops</button>'+
-    '<div class="note" id="d_note">Lands on whatever scene is live right now.</div>';
-}
 function wireDrop(){
   var secs=6, sw=el("d_secs");
   [["3s",3],["6s",6],["15s",15],["stays",0]].forEach(function(p){
@@ -1032,7 +1007,7 @@ function paint(){
 function renderGate(){
   app.innerHTML='<div class="gate">'+
     '<div class="hl big">PR<span class="z">0</span>CESS_LIVE <span class="z">//</span> OBS</div>'+
-    '<input id="pin" type="password" placeholder="PIN">'+
+    '<input class="tin" id="pin" type="password" placeholder="PIN">'+
     '<button class="btn" id="unlock">Unlock</button>'+
     '<div class="note" id="gerr"></div></div>';
   function go(){

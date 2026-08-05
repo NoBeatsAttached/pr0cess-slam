@@ -187,12 +187,13 @@ function runBridge(){
   document.body.className="bridge";
   var pw=rawPw();
   var ws=null, obsReady=false, reqId=0, pending={}, canvas={w:1920,h:1080};
-  var curScene="", deckHere=false;
+  var curScene="", deckHere=false, lastErr="";
 
   app.innerHTML='<div class="bwrap"><div class="bcard"><h1>PR<span class="z">0</span>CESS_LIVE // BRIDGE</h1>'+
     '<div class="brow"><span class="k">OBS</span><span class="v" id="b_obs">connecting</span></div>'+
     '<div class="brow"><span class="k">Relay</span><span class="v" id="b_rel">connecting</span></div>'+
     '<div class="brow"><span class="k">Last</span><span class="v" id="b_last">\u2014</span></div>'+
+    '<div class="brow"><span class="k">View</span><span class="v" id="b_shot">\u2014</span></div>'+
     '<p class="hint" style="margin-top:14px">Leave this running. It takes commands from the deck and passes them to OBS.</p>'+
     '</div></div>';
   function setRow(id,txt,cls){ var e=document.getElementById(id); if(e){ e.textContent=txt; e.className="v"+(cls?" "+cls:""); } }
@@ -234,7 +235,10 @@ function runBridge(){
         var p=pending[m.d.requestId];
         if(p){ delete pending[m.d.requestId];
           if(m.d.requestStatus&&m.d.requestStatus.result) p.res(m.d.responseData||{});
-          else p.res(null); }
+          else {
+            lastErr=(m.d.requestStatus&&(m.d.requestStatus.comment||m.d.requestStatus.code))||"failed";
+            p.res(null);
+          } }
       }
       if(m.op===5){ // something changed in OBS — refresh the deck
         if(/Scene|SceneItem|Input/.test(m.d.eventType||"")) schedulePush();
@@ -319,11 +323,25 @@ function runBridge(){
   }
 
   function shot(){
-    if(!obsReady||!curScene||!deckHere)return;
+    if(!obsReady||!curScene){ setRow("b_shot","waiting on OBS"); return; }
+    lastErr="";
     obs("GetSourceScreenshot",{sourceName:curScene,imageFormat:"jpg",
-      imageWidth:480,imageCompressionQuality:35}).then(function(r){
-      if(r&&r.imageData) send("shot",{img:r.imageData});
+      imageWidth:384,imageCompressionQuality:30}).then(function(r){
+      if(r&&r.imageData){ deliver(r.imageData); return; }
+      // some builds don't accept jpg — try png once
+      obs("GetSourceScreenshot",{sourceName:curScene,imageFormat:"png",imageWidth:320}).then(function(r2){
+        if(r2&&r2.imageData){ deliver(r2.imageData); return; }
+        setRow("b_shot",lastErr||"no image back","bad");
+      });
     });
+  }
+  function deliver(img){
+    var kb=Math.round(img.length/1024);
+    if(kb>200){ setRow("b_shot",kb+"kb — too big","bad"); return; }
+    try{
+      channel.send({type:"broadcast",event:"shot",payload:{img:img}});
+      setRow("b_shot","sending "+kb+"kb","ok");
+    }catch(e){ setRow("b_shot","send failed","bad"); }
   }
 
   channel=sb.channel(CHANNEL,{config:{broadcast:{self:false},presence:{key:"bridge"}}});

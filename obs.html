@@ -75,7 +75,13 @@ body.bridge::after{display:none}
   overflow:hidden;cursor:grab}
 .mi span{display:block;font-size:8px;letter-spacing:.1em;color:var(--dim);padding:3px 4px;
   white-space:nowrap;text-transform:uppercase;pointer-events:none}
-.mi.sel{border-color:var(--electric);background:rgba(63,198,255,.14);z-index:5;cursor:grabbing}
+.mi .hd{position:absolute;width:14px;height:14px;background:var(--electric);border:1px solid #000;
+  box-shadow:0 0 0 1px rgba(0,0,0,.6);z-index:8}
+.hd.nw{left:-7px;top:-7px;cursor:nwse-resize}
+.hd.ne{right:-7px;top:-7px;cursor:nesw-resize}
+.hd.sw{left:-7px;bottom:-7px;cursor:nesw-resize}
+.hd.se{right:-7px;bottom:-7px;cursor:nwse-resize}
+.mi.sel{border-color:var(--electric);background:rgba(63,198,255,.14);z-index:5;cursor:grabbing;overflow:visible}
 .mi.sel span{color:var(--electric)}
 .mi.off{opacity:.32;border-style:dashed}
 .mi.stray{border-color:var(--hot);border-style:dotted;background:rgba(255,46,95,.10)}
@@ -100,6 +106,7 @@ body.bridge::after{display:none}
 .buildbtn:hover{filter:brightness(1.12)}
 .buildbtn.ghost{background:transparent;border:1px solid var(--line2);color:var(--dim);font-weight:500}
 .buildbtn.ghost:hover{border-color:var(--electric);color:var(--electric);filter:none}
+.buildbtn.danger{background:var(--hot);color:#000;border:none;font-weight:700}
 .droppanel{border:1px solid rgba(255,46,95,.35);padding:16px;background:rgba(255,46,95,.03)}
 .droppanel .setlab{color:var(--hot)}
 .dropbtn{width:100%;margin-top:8px;background:var(--hot);color:#000;border:none;font:inherit;font-weight:700;
@@ -395,9 +402,34 @@ function runBridge(){
       return;
     }
     if(p.cmd==="del"){
-      obs("RemoveInput",{inputName:p.name}).then(function(r){
-        note(r?("removed "+p.name):("remove failed: "+lastErr));
-        schedulePush();
+      var dn=p.name, dsc=p.scene, did=p.id;
+      obs("GetInputSettings",{inputName:dn}).then(function(si){
+        var finish=function(savedT){
+          obs("RemoveInput",{inputName:dn}).then(function(r){
+            if(!r){ note("remove failed: "+lastErr); return; }
+            note("removed "+dn);
+            if(si&&si.inputKind){
+              pushUndo("delete",function(){
+                obs("CreateInput",{sceneName:dsc,inputName:dn,inputKind:si.inputKind,
+                  inputSettings:si.inputSettings||{},sceneItemEnabled:true}).then(function(cr){
+                  if(cr&&savedT){
+                    obs("SetSceneItemTransform",{sceneName:dsc,sceneItemId:cr.sceneItemId,
+                      sceneItemTransform:{positionX:savedT.positionX,positionY:savedT.positionY,
+                        scaleX:savedT.scaleX,scaleY:savedT.scaleY,
+                        alignment:savedT.alignment,
+                        boundsType:savedT.boundsType,boundsWidth:savedT.boundsWidth,
+                        boundsHeight:savedT.boundsHeight,boundsAlignment:savedT.boundsAlignment}});
+                  }
+                  schedulePush();
+                });
+              });
+            }
+            schedulePush();
+          });
+        };
+        if(did) obs("GetSceneItemTransform",{sceneName:dsc,sceneItemId:did})
+                  .then(function(tr){ finish(tr&&tr.sceneItemTransform); });
+        else finish(null);
       });
       return;
     }
@@ -463,6 +495,39 @@ function runBridge(){
         obs("SetSceneItemEnabled",{sceneName:vsc,sceneItemId:vid,sceneItemEnabled:wasOn});
       });
       obs("SetSceneItemEnabled",{sceneName:p.scene,sceneItemId:p.id,sceneItemEnabled:!!p.on}).then(schedulePush);
+      return;
+    }
+    if(p.cmd==="box"){
+      obs("GetSceneItemTransform",{sceneName:p.scene,sceneItemId:p.id}).then(function(r){
+        if(!r||!r.sceneItemTransform)return;
+        var t=r.sceneItemTransform;
+        var prevB={positionX:t.positionX,positionY:t.positionY,scaleX:t.scaleX,scaleY:t.scaleY,
+                   boundsWidth:t.boundsWidth,boundsHeight:t.boundsHeight};
+        var bsc=p.scene, bid=p.id, bt=t.boundsType||"OBS_BOUNDS_NONE";
+        pushUndo("resize",function(){
+          var back={positionX:prevB.positionX,positionY:prevB.positionY,
+                    scaleX:prevB.scaleX,scaleY:prevB.scaleY};
+          if(bt!=="OBS_BOUNDS_NONE"){ back.boundsWidth=prevB.boundsWidth; back.boundsHeight=prevB.boundsHeight; }
+          obs("SetSceneItemTransform",{sceneName:bsc,sceneItemId:bid,sceneItemTransform:back});
+        });
+        var w=Math.max(8,p.w||8), h=Math.max(8,p.h||8);
+        var nt={};
+        if(bt!=="OBS_BOUNDS_NONE"){
+          nt.boundsWidth=Math.round(w); nt.boundsHeight=Math.round(h);
+        }else{
+          var sw=(t.sourceWidth||0)-(t.cropLeft||0)-(t.cropRight||0);
+          var sh=(t.sourceHeight||0)-(t.cropTop||0)-(t.cropBottom||0);
+          if(sw>0) nt.scaleX=Math.max(.02,w/sw);
+          if(sh>0) nt.scaleY=Math.max(.02,h/sh);
+        }
+        var a=(typeof t.alignment==="number")?t.alignment:5;
+        var px=p.x, py=p.y;
+        if(a&2) px=p.x+w; else if(!(a&1)) px=p.x+w/2;
+        if(a&8) py=p.y+h; else if(!(a&4)) py=p.y+h/2;
+        nt.positionX=Math.round(px); nt.positionY=Math.round(py);
+        obs("SetSceneItemTransform",{sceneName:p.scene,sceneItemId:p.id,sceneItemTransform:nt})
+          .then(schedulePush);
+      });
       return;
     }
     if(p.cmd==="move"||p.cmd==="scale"||p.cmd==="snap"||p.cmd==="place"){
@@ -607,7 +672,7 @@ function renderDeck(){
   '<div class="wrap">'+
     '<div class="mast"><div class="brand">PR<span class="z">0</span>CESS_LIVE <span class="z">//</span> OBS CONTROL</div></div>'+
     '<div class="status"><span class="dot" id="dot"></span><span id="stat">Connecting</span><span class="who" id="who"></span></div>'+
-    '<div><div class="setlab">Layout</div><div class="map" id="map"></div><div class="maphint" id="maphint">Drag a box to move it</div>'+
+    '<div><div class="setlab">Layout</div><div class="map" id="map"></div><div class="maphint" id="maphint">Drag to move \u2014 corners to resize \u2014 hold Shift to stretch</div>'+
       '<textarea id="rawout" readonly style="display:none;width:100%;min-height:130px;margin-top:8px;background:var(--void);border:1px solid var(--line2);color:var(--electric);font:inherit;font-size:10px;padding:10px;resize:vertical"></textarea>'+
       '<div style="display:flex;gap:6px;margin-top:8px"><button class="undobtn" id="undo">\u21B6 Undo</button></div>'+
       '<div style="text-align:center;margin-top:4px"><a href="#" id="diag" style="font-size:9px;letter-spacing:.14em;color:var(--dimmer);text-decoration:none;text-transform:uppercase">boxes wrong? read them</a></div></div>'+
@@ -650,31 +715,65 @@ function renderDeck(){
   };
 
   var map=document.getElementById("map"), drag=null;
+
+  function calcBox(d,dx,dy,lock){
+    var x=d.x0,y=d.y0,w=d.w0,h=d.h0,c=d.corner;
+    var ar=(d.h0>0?d.w0/d.h0:1);
+    if(c==="se"){ w=d.w0+dx; h=lock?w/ar:(d.h0+dy); }
+    if(c==="ne"){ w=d.w0+dx; h=lock?w/ar:(d.h0-dy); y=d.y0+(d.h0-h); }
+    if(c==="sw"){ w=d.w0-dx; h=lock?w/ar:(d.h0+dy); x=d.x0+(d.w0-w); }
+    if(c==="nw"){ w=d.w0-dx; h=lock?w/ar:(d.h0-dy); x=d.x0+(d.w0-w); y=d.y0+(d.h0-h); }
+    if(w<8){w=8;} if(h<8){h=8;}
+    return {x:Math.round(x),y:Math.round(y),w:Math.round(w),h:Math.round(h)};
+  }
+
   map.addEventListener("pointerdown",function(e){
-    var el=e.target.closest?e.target.closest(".mi"):null;
-    if(!el)return;
+    var t=e.target;
+    var isHd=t.className&&(""+t.className).indexOf("hd")===0;
+    var el=isHd?t.parentNode:(t.closest?t.closest(".mi"):null);
+    if(!el||!el.getAttribute)return;
     var id=parseInt(el.getAttribute("data-id"),10);
-    selId=id; paint();
-    el=map.querySelector('.mi[data-id="'+id+'"]');
-    if(!el)return;
-    drag={id:id,el:el,r:map.getBoundingClientRect(),
-          ox:e.clientX,oy:e.clientY,
-          sx:parseFloat(el.style.left),sy:parseFloat(el.style.top)};
+    if(!isHd){
+      selId=id; paint();
+      el=map.querySelector('.mi[data-id="'+id+'"]');
+      if(!el)return;
+    }
+    drag={mode:isHd?"size":"move",corner:isHd?t.getAttribute("data-c"):null,
+          id:id,el:el,r:map.getBoundingClientRect(),ox:e.clientX,oy:e.clientY,
+          x0:parseFloat(el.getAttribute("data-x"))||0,y0:parseFloat(el.getAttribute("data-y"))||0,
+          w0:parseFloat(el.getAttribute("data-w"))||0,h0:parseFloat(el.getAttribute("data-h"))||0};
     try{ map.setPointerCapture(e.pointerId); }catch(err){}
     e.preventDefault();
   });
+
   map.addEventListener("pointermove",function(e){
     if(!drag)return;
-    var dx=(e.clientX-drag.ox)/drag.r.width*100;
-    var dy=(e.clientY-drag.oy)/drag.r.height*100;
-    drag.el.style.left=(drag.sx+dx)+"%";
-    drag.el.style.top=(drag.sy+dy)+"%";
+    var cw=ST.cw||1920, ch=ST.ch||1080;
+    var dx=(e.clientX-drag.ox)/drag.r.width*cw;
+    var dy=(e.clientY-drag.oy)/drag.r.height*ch;
+    if(drag.mode==="move"){
+      drag.el.style.left=((drag.x0+dx)/cw*100)+"%";
+      drag.el.style.top=((drag.y0+dy)/ch*100)+"%";
+    }else{
+      var b=calcBox(drag,dx,dy,!e.shiftKey);
+      drag.el.style.left=(b.x/cw*100)+"%";
+      drag.el.style.top=(b.y/ch*100)+"%";
+      drag.el.style.width=(b.w/cw*100)+"%";
+      drag.el.style.height=(b.h/ch*100)+"%";
+      drag.last=b;
+    }
   });
+
   function endDrag(e){
     if(!drag)return;
-    var dx=(e.clientX-drag.ox)/drag.r.width*(ST.cw||1920);
-    var dy=(e.clientY-drag.oy)/drag.r.height*(ST.ch||1080);
-    if(Math.abs(dx)>1||Math.abs(dy)>1) cmd({cmd:"move",id:drag.id,dx:Math.round(dx),dy:Math.round(dy)});
+    var cw=ST.cw||1920, ch=ST.ch||1080;
+    if(drag.mode==="move"){
+      var dx=(e.clientX-drag.ox)/drag.r.width*cw;
+      var dy=(e.clientY-drag.oy)/drag.r.height*ch;
+      if(Math.abs(dx)>1||Math.abs(dy)>1) cmd({cmd:"move",id:drag.id,dx:Math.round(dx),dy:Math.round(dy)});
+    }else if(drag.last){
+      cmd({cmd:"box",id:drag.id,x:drag.last.x,y:drag.last.y,w:drag.last.w,h:drag.last.h});
+    }
     drag=null;
   }
   map.addEventListener("pointerup",endDrag);
@@ -719,13 +818,29 @@ function renderDeck(){
            val:"https://nobeatsattached.github.io/pr0cess-slam/#overlay"});
       bnote("Slam overlay added");
     };
+    var delArmed=false, delTimer=null;
     document.getElementById("b_del").onclick=function(){
+      var btn=this;
       if(selId===null){ bnote("Select a source first"); return; }
       var f=null;
       ST.items.forEach(function(it){ if(it.id===selId) f=it.name; });
       if(!f){ bnote("Can\u2019t find that one"); return; }
-      cmd({cmd:"del",name:f});
-      bnote("Deleted "+f+" \u2014 undo won\u2019t bring it back");
+      if(!delArmed){
+        delArmed=true;
+        btn.textContent="Tap again to delete "+f;
+        btn.className="buildbtn danger";
+        delTimer=setTimeout(function(){
+          delArmed=false;
+          btn.textContent="Delete selected source";
+          btn.className="buildbtn ghost";
+        },5000);
+        return;
+      }
+      clearTimeout(delTimer); delArmed=false;
+      btn.textContent="Delete selected source";
+      btn.className="buildbtn ghost";
+      cmd({cmd:"del",name:f,id:selId});
+      bnote("Deleted "+f+" \u2014 undo can put it back");
     };
 
     var dropSecs=6;
@@ -782,12 +897,23 @@ function paint(){
       var offCanvas=(it.x+it.w<0)||(it.y+it.h<0)||(it.x>cw)||(it.y>ch);
       if(offCanvas) d.className+=" stray";
       d.setAttribute("data-id",it.id);
+      d.setAttribute("data-x",it.x||0);
+      d.setAttribute("data-y",it.y||0);
+      d.setAttribute("data-w",it.w||0);
+      d.setAttribute("data-h",it.h||0);
       d.style.left=((it.x||0)/cw*100)+"%";
       d.style.top=((it.y||0)/ch*100)+"%";
       d.style.width=(Math.max(it.w||0,cw*0.04)/cw*100)+"%";
       d.style.height=(Math.max(it.h||0,ch*0.04)/ch*100)+"%";
       var s=document.createElement("span"); s.textContent=it.name;
       d.appendChild(s);
+      if(it.id===selId){
+        ["nw","ne","sw","se"].forEach(function(c){
+          var g=document.createElement("i");
+          g.className="hd "+c; g.setAttribute("data-c",c);
+          d.appendChild(g);
+        });
+      }
       mp.appendChild(d);
     });
   }

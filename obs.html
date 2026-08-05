@@ -67,11 +67,18 @@ body.bridge::after{display:none}
 .nosel{border:1px dashed var(--line2);padding:22px 16px;text-align:center;font-size:11px;
   letter-spacing:.1em;color:var(--dim);line-height:1.8}
 
-.prevbox{position:relative;border:1px solid var(--line2);background:#000;aspect-ratio:16/9;overflow:hidden;cursor:crosshair}
-.prevbox img{width:100%;height:100%;display:block;object-fit:contain}
-.prevbox .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  font-size:10px;letter-spacing:.18em;color:var(--dimmer);text-transform:uppercase;text-align:center;padding:0 20px}
-.prevhint{font-size:9px;letter-spacing:.14em;color:var(--dimmer);text-transform:uppercase;margin-top:6px;text-align:center}
+.map{position:relative;border:1px solid var(--line2);background:
+  linear-gradient(rgba(63,198,255,.05) 1px,transparent 1px) 0 0/100% 25%,
+  linear-gradient(90deg,rgba(63,198,255,.05) 1px,transparent 1px) 0 0/25% 100%,#050505;
+  aspect-ratio:16/9;overflow:hidden;touch-action:none;user-select:none}
+.mi{position:absolute;border:1px solid var(--dimmer);background:rgba(255,255,255,.04);
+  overflow:hidden;cursor:grab}
+.mi span{display:block;font-size:8px;letter-spacing:.1em;color:var(--dim);padding:3px 4px;
+  white-space:nowrap;text-transform:uppercase;pointer-events:none}
+.mi.sel{border-color:var(--electric);background:rgba(63,198,255,.14);z-index:5;cursor:grabbing}
+.mi.sel span{color:var(--electric)}
+.mi.off{opacity:.32;border-style:dashed}
+.maphint{font-size:9px;letter-spacing:.14em;color:var(--dimmer);text-transform:uppercase;margin-top:6px;text-align:center}
 
 .gatebox{max-width:280px;margin:0 auto;width:100%}
 .gatebox input{width:100%;background:var(--panel);border:1px solid var(--line2);color:var(--text);font:inherit;
@@ -268,9 +275,17 @@ function runBridge(){
       var scenes=(sl.scenes||[]).map(function(s){return s.sceneName;}).reverse();
       obs("GetSceneItemList",{sceneName:cur}).then(function(il){
         var items=((il&&il.sceneItems)||[]).map(function(it){
-          return {id:it.sceneItemId,name:it.sourceName,on:it.sceneItemEnabled!==false};
+          var t=it.sceneItemTransform||{};
+          var w=t.width||((t.sourceWidth||0)*(t.scaleX||1));
+          var h=t.height||((t.sourceHeight||0)*(t.scaleY||1));
+          var a=(typeof t.alignment==="number")?t.alignment:5;
+          var x=t.positionX||0, y=t.positionY||0;
+          if(a&2) x=x-w; else if(!(a&1)) x=x-w/2;
+          if(a&8) y=y-h; else if(!(a&4)) y=y-h/2;
+          return {id:it.sceneItemId,name:it.sourceName,on:it.sceneItemEnabled!==false,
+                  x:Math.round(x),y:Math.round(y),w:Math.round(w),h:Math.round(h)};
         }).reverse();
-        send("state",{ok:true,scenes:scenes,current:cur,items:items});
+        send("state",{ok:true,scenes:scenes,current:cur,items:items,cw:canvas.w,ch:canvas.h});
       });
     });
   }
@@ -360,8 +375,7 @@ function runBridge(){
     }
   });
   obsConnect();
-  setInterval(function(){ if(obsReady) pushState(); },10000);
-  setInterval(shot,1500);
+  setInterval(function(){ if(obsReady) pushState(); },3000);
 }
 
 /* ==========================================================
@@ -377,13 +391,6 @@ function cmd(p){ if(channel){ if(!p.scene) p.scene=ST.current; try{ channel.send
 function deckConnect(){
   channel=sb.channel(CHANNEL,{config:{broadcast:{self:false},presence:{key:"deck-"+Math.random().toString(36).slice(2,7)}}});
   channel.on("broadcast",{event:"state"},function(m){ ST=m.payload||ST; paint(); });
-  channel.on("broadcast",{event:"shot"},function(m){
-    var box=document.getElementById("prevbox");
-    if(!box||!m.payload||!m.payload.img)return;
-    var im=box.querySelector("img");
-    if(!im){ box.innerHTML=""; im=document.createElement("img"); box.appendChild(im); }
-    im.src=m.payload.img;
-  });
   channel.on("presence",{event:"sync"},function(){
     var st=channel.presenceState(), f=false;
     Object.keys(st).forEach(function(k){ st[k].forEach(function(x){ if(x.role==="bridge") f=true; }); });
@@ -412,7 +419,7 @@ function renderDeck(){
   '<div class="wrap">'+
     '<div class="mast"><div class="brand">PR<span class="z">0</span>CESS_LIVE <span class="z">//</span> OBS CONTROL</div></div>'+
     '<div class="status"><span class="dot" id="dot"></span><span id="stat">Connecting</span><span class="who" id="who"></span></div>'+
-    '<div><div class="setlab">Live view</div><div class="prevbox" id="prevbox"><div class="ph">waiting for OBS</div></div><div class="prevhint" id="prevhint">Select a source, then tap where you want it</div></div>'+
+    '<div><div class="setlab">Layout</div><div class="map" id="map"></div><div class="maphint">Drag a box to move it</div></div>'+
     '<div><div class="setlab">Scene</div><div class="chips" id="scenes"></div></div>'+
     '<div><div class="setlab">Sources</div><div id="srcs"></div></div>'+
     '<div><div class="setlab">Move</div><div id="mover"></div></div>'+
@@ -420,24 +427,62 @@ function renderDeck(){
   '</div>';
   document.getElementById("who").textContent=ROLE;
   document.getElementById("refresh").onclick=function(e){ e.preventDefault(); cmd({cmd:"ping"}); };
-  document.getElementById("prevbox").onclick=function(e){
-    if(selId===null){
-      var h=document.getElementById("prevhint");
-      h.textContent="Pick a source below first"; h.style.color="var(--hot)";
-      setTimeout(function(){ h.textContent="Select a source, then tap where you want it"; h.style.color=""; },1800);
-      return;
-    }
-    var r=this.getBoundingClientRect();
-    var nx=(e.clientX-r.left)/r.width, ny=(e.clientY-r.top)/r.height;
-    if(nx<0||nx>1||ny<0||ny>1)return;
-    cmd({cmd:"place",id:selId,nx:nx,ny:ny});
-  };
+
+  var map=document.getElementById("map"), drag=null;
+  map.addEventListener("pointerdown",function(e){
+    var el=e.target.closest?e.target.closest(".mi"):null;
+    if(!el)return;
+    var id=parseInt(el.getAttribute("data-id"),10);
+    selId=id; paint();
+    el=map.querySelector('.mi[data-id="'+id+'"]');
+    if(!el)return;
+    drag={id:id,el:el,r:map.getBoundingClientRect(),
+          ox:e.clientX,oy:e.clientY,
+          sx:parseFloat(el.style.left),sy:parseFloat(el.style.top)};
+    try{ map.setPointerCapture(e.pointerId); }catch(err){}
+    e.preventDefault();
+  });
+  map.addEventListener("pointermove",function(e){
+    if(!drag)return;
+    var dx=(e.clientX-drag.ox)/drag.r.width*100;
+    var dy=(e.clientY-drag.oy)/drag.r.height*100;
+    drag.el.style.left=(drag.sx+dx)+"%";
+    drag.el.style.top=(drag.sy+dy)+"%";
+  });
+  function endDrag(e){
+    if(!drag)return;
+    var dx=(e.clientX-drag.ox)/drag.r.width*(ST.cw||1920);
+    var dy=(e.clientY-drag.oy)/drag.r.height*(ST.ch||1080);
+    if(Math.abs(dx)>1||Math.abs(dy)>1) cmd({cmd:"move",id:drag.id,dx:Math.round(dx),dy:Math.round(dy)});
+    drag=null;
+  }
+  map.addEventListener("pointerup",endDrag);
+  map.addEventListener("pointercancel",function(){ drag=null; paint(); });
   document.getElementById("lock").onclick=function(e){ e.preventDefault();
     PIN="";ROLE="";localStorage.removeItem("slam_pin");localStorage.removeItem("slam_role");render(); };
   paint(); paintStatus(); deckConnect();
 }
 
 function paint(){
+  var mp=document.getElementById("map");
+  if(mp){
+    var cw=ST.cw||1920, ch=ST.ch||1080;
+    mp.innerHTML="";
+    ST.items.slice().reverse().forEach(function(it){
+      if(typeof it.x!=="number")return;
+      var d=document.createElement("div");
+      d.className="mi"+(it.id===selId?" sel":"")+(it.on?"":" off");
+      d.setAttribute("data-id",it.id);
+      d.style.left=(it.x/cw*100)+"%";
+      d.style.top=(it.y/ch*100)+"%";
+      d.style.width=(it.w/cw*100)+"%";
+      d.style.height=(it.h/ch*100)+"%";
+      var s=document.createElement("span"); s.textContent=it.name;
+      d.appendChild(s);
+      mp.appendChild(d);
+    });
+  }
+
   var sc=document.getElementById("scenes");
   if(!sc)return;
   sc.innerHTML="";

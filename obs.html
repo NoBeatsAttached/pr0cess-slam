@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#030303" />
+<title>PR0CESS_LIVE // OBS CONTROL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700;800&display=swap" rel="stylesheet" />
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--void:#030303;--panel:#0A0A0A;--panel-2:#101010;--line:#1E1E1E;--line2:#2B2B2B;
+  --text:#EDEDED;--dim:#8C8C8C;--dimmer:#4A4A4A;--electric:#3FC6FF;--hot:#FF2E5F;--go:#3FFF9E;}
+html,body{height:100%}
+body{background:var(--void);color:var(--text);font-family:'JetBrains Mono',ui-monospace,monospace}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:99;
+  background:repeating-linear-gradient(0deg,transparent 0 2px,rgba(0,0,0,.22) 2px 3px)}
+body.bridge{background:transparent}
+body.bridge::after{display:none}
+
+.wrap{max-width:680px;margin:0 auto;padding:5vh 20px 44px;display:flex;flex-direction:column;gap:16px}
+.mast{text-align:center}
+.brand{font-size:clamp(14px,3.2vw,19px);letter-spacing:.2em;color:#FFF;font-weight:300}
+.brand .z{color:var(--electric)}
+
+.status{display:flex;align-items:center;gap:9px;font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--dim);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:11px 2px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--dimmer);flex:none}
+.dot.live{background:var(--go);box-shadow:0 0 0 0 rgba(63,255,158,.6);animation:pulse 2s infinite}
+.dot.dead{background:var(--hot)}
+@keyframes pulse{70%{box-shadow:0 0 0 7px rgba(63,255,158,0)}100%{box-shadow:0 0 0 0 rgba(63,255,158,0)}}
+.status .who{margin-left:auto;color:var(--electric)}
+
+.setlab{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{background:var(--panel);border:1px solid var(--line2);color:var(--dim);font:inherit;font-size:11px;
+  letter-spacing:.1em;text-transform:uppercase;padding:10px 13px;cursor:pointer;transition:.15s}
+.chip:hover{border-color:var(--electric);color:var(--electric)}
+.chip[aria-pressed="true"]{border-color:var(--electric);color:var(--electric);background:rgba(63,198,255,.08)}
+.chip.live{border-color:var(--go);color:var(--go);background:rgba(63,255,158,.07)}
+
+.srclist{display:flex;flex-direction:column;border:1px solid var(--line)}
+.src{display:flex;align-items:center;gap:10px;padding:12px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.src:last-child{border-bottom:none}
+.src.sel{background:rgba(63,198,255,.07);box-shadow:inset 2px 0 0 var(--electric)}
+.src .nm{flex:1;font-size:12px;letter-spacing:.06em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.src.off .nm{color:var(--dimmer);text-decoration:line-through}
+.eye{background:transparent;border:1px solid var(--line2);color:var(--dim);font:inherit;font-size:9px;
+  letter-spacing:.14em;text-transform:uppercase;padding:7px 11px;cursor:pointer;flex:none}
+.eye.on{border-color:var(--go);color:var(--go)}
+.eye:hover{border-color:var(--electric);color:var(--electric)}
+
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-width:280px;margin:0 auto}
+.pad button{background:var(--panel);border:1px solid var(--line2);color:var(--text);font:inherit;font-size:17px;
+  padding:17px 0;cursor:pointer;transition:.12s}
+.pad button:hover{border-color:var(--electric);color:var(--electric)}
+.pad .blank{visibility:hidden}
+.pad .ctr{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+
+.two{display:flex;gap:6px}
+.two button{flex:1;background:var(--panel);border:1px solid var(--line2);color:var(--text);font:inherit;
+  font-size:12px;letter-spacing:.14em;text-transform:uppercase;padding:14px 0;cursor:pointer;transition:.12s}
+.two button:hover{border-color:var(--electric);color:var(--electric)}
+
+.stepnote{text-align:center;font-size:10px;letter-spacing:.16em;color:var(--dimmer);text-transform:uppercase;margin-top:8px}
+.nosel{border:1px dashed var(--line2);padding:22px 16px;text-align:center;font-size:11px;
+  letter-spacing:.1em;color:var(--dim);line-height:1.8}
+
+.gatebox{max-width:280px;margin:0 auto;width:100%}
+.gatebox input{width:100%;background:var(--panel);border:1px solid var(--line2);color:var(--text);font:inherit;
+  font-size:15px;padding:12px;text-align:center}
+.gatebox input:focus{outline:none;border-color:var(--electric)}
+.act{background:var(--electric);color:#000;border:none;font:inherit;font-weight:700;font-size:13px;
+  letter-spacing:.1em;text-transform:uppercase;padding:14px 30px;cursor:pointer;transition:.15s}
+.act:hover{filter:brightness(1.12)}
+.hint{font-size:12px;color:var(--dim);line-height:1.6}
+.help{text-align:center;border-top:1px solid var(--line);padding-top:16px}
+.help a{color:var(--electric);text-decoration:none}
+.help .sub{color:var(--dim);margin-left:16px}
+
+/* bridge readout — only visible if you open it in a normal browser */
+.bwrap{max-width:520px;margin:0 auto;padding:6vh 22px}
+.bcard{border:1px solid var(--line2);padding:22px;background:var(--panel)}
+.bcard h1{font-size:13px;letter-spacing:.24em;font-weight:400;margin-bottom:16px}
+.brow{display:flex;gap:10px;align-items:center;font-size:11px;letter-spacing:.1em;color:var(--dim);padding:7px 0}
+.brow .k{width:96px;color:var(--dimmer);text-transform:uppercase;font-size:10px;letter-spacing:.16em;flex:none}
+.brow .v{color:var(--text)}
+.brow .v.ok{color:var(--go)}
+.brow .v.bad{color:var(--hot)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+/* PR0CESS_LIVE // OBS CONTROL
+   obs.html                     -> PIN-gated control deck (your phone)
+   obs.html?pw=OBSPASSWORD      -> bridge, runs as a browser source inside G-REX's OBS
+   Nothing in here needs editing.                                              */
+(function(){
+"use strict";
+
+var SUPABASE_URL="https://tewcgwhumtmjvfxcvbxl.supabase.co";
+var SUPABASE_ANON_KEY="sb_publishable_1DZr_3nrtELGlEFIR3SIMA_F_ELXSdn";
+var CHANNEL="ch-obs-4bn7yq2";
+var OBS_PORT=4455;
+var NUDGE=20;      // pixels per tap
+var SCALE_STEP=.06;
+
+var sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{realtime:{params:{eventsPerSecond:25}}});
+var app=document.getElementById("app");
+var qs=new URLSearchParams(location.search);
+var IS_BRIDGE=qs.has("pw");
+var channel=null;
+
+/* ---------- tiny SHA-256 (works with or without crypto.subtle) ---------- */
+var K=[0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+function sha256bytes(msg){
+  function rr(n,x){return (x>>>n)|(x<<(32-n));}
+  var H=[0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+  var bytes=[],i;
+  for(i=0;i<msg.length;i++){
+    var c=msg.charCodeAt(i);
+    if(c<128) bytes.push(c);
+    else if(c<2048){ bytes.push(192|(c>>6),128|(c&63)); }
+    else { bytes.push(224|(c>>12),128|((c>>6)&63),128|(c&63)); }
+  }
+  var bitLen=bytes.length*8;
+  bytes.push(0x80);
+  while(bytes.length%64!==56) bytes.push(0);
+  for(i=7;i>=0;i--) bytes.push((bitLen/Math.pow(2,i*8))&255);
+  var w=new Array(64);
+  for(var b=0;b<bytes.length;b+=64){
+    for(i=0;i<16;i++) w[i]=(bytes[b+i*4]<<24)|(bytes[b+i*4+1]<<16)|(bytes[b+i*4+2]<<8)|bytes[b+i*4+3];
+    for(i=16;i<64;i++){
+      var s0=rr(7,w[i-15])^rr(18,w[i-15])^(w[i-15]>>>3);
+      var s1=rr(17,w[i-2])^rr(19,w[i-2])^(w[i-2]>>>10);
+      w[i]=(w[i-16]+s0+w[i-7]+s1)|0;
+    }
+    var a=H[0],bb=H[1],c2=H[2],d=H[3],e=H[4],f=H[5],g=H[6],h=H[7];
+    for(i=0;i<64;i++){
+      var S1=rr(6,e)^rr(11,e)^rr(25,e);
+      var ch=(e&f)^((~e)&g);
+      var t1=(h+S1+ch+K[i]+w[i])|0;
+      var S0=rr(2,a)^rr(13,a)^rr(22,a);
+      var mj=(a&bb)^(a&c2)^(bb&c2);
+      var t2=(S0+mj)|0;
+      h=g;g=f;f=e;e=(d+t1)|0;d=c2;c2=bb;bb=a;a=(t1+t2)|0;
+    }
+    H[0]=(H[0]+a)|0;H[1]=(H[1]+bb)|0;H[2]=(H[2]+c2)|0;H[3]=(H[3]+d)|0;
+    H[4]=(H[4]+e)|0;H[5]=(H[5]+f)|0;H[6]=(H[6]+g)|0;H[7]=(H[7]+h)|0;
+  }
+  var out=[];
+  for(i=0;i<8;i++){ out.push((H[i]>>>24)&255,(H[i]>>>16)&255,(H[i]>>>8)&255,H[i]&255); }
+  return out;
+}
+function b64(bytes){
+  var s=""; for(var i=0;i<bytes.length;i++) s+=String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+function sha256b64(str){ return b64(sha256bytes(str)); }
+
+/* ==========================================================
+   BRIDGE — runs on G-REX's machine
+   ========================================================== */
+function runBridge(){
+  document.body.className="bridge";
+  var pw=qs.get("pw")||"";
+  var ws=null, obsReady=false, reqId=0, pending={}, canvas={w:1920,h:1080};
+
+  app.innerHTML='<div class="bwrap"><div class="bcard"><h1>PR<span class="z">0</span>CESS_LIVE // BRIDGE</h1>'+
+    '<div class="brow"><span class="k">OBS</span><span class="v" id="b_obs">connecting</span></div>'+
+    '<div class="brow"><span class="k">Relay</span><span class="v" id="b_rel">connecting</span></div>'+
+    '<div class="brow"><span class="k">Last</span><span class="v" id="b_last">\u2014</span></div>'+
+    '<p class="hint" style="margin-top:14px">Leave this running. It takes commands from the deck and passes them to OBS.</p>'+
+    '</div></div>';
+  function setRow(id,txt,cls){ var e=document.getElementById(id); if(e){ e.textContent=txt; e.className="v"+(cls?" "+cls:""); } }
+
+  function obsConnect(){
+    setRow("b_obs","connecting");
+    try{ ws=new WebSocket("ws://127.0.0.1:"+OBS_PORT); }
+    catch(e){ setRow("b_obs","blocked","bad"); return; }
+
+    ws.onopen=function(){};
+    ws.onclose=function(){ obsReady=false; setRow("b_obs","disconnected","bad"); setTimeout(obsConnect,4000); };
+    ws.onerror=function(){ setRow("b_obs","can\u2019t reach OBS","bad"); };
+    ws.onmessage=function(ev){
+      var m; try{ m=JSON.parse(ev.data); }catch(e){ return; }
+      if(m.op===0){
+        var ident={op:1,d:{rpcVersion:1}};
+        if(m.d.authentication){
+          var secret=sha256b64(pw+m.d.authentication.salt);
+          ident.d.authentication=sha256b64(secret+m.d.authentication.challenge);
+        }
+        ws.send(JSON.stringify(ident));
+      }
+      if(m.op===2){
+        obsReady=true; setRow("b_obs","connected","ok");
+        obs("GetVideoSettings",{}).then(function(v){
+          if(v){ canvas.w=v.baseWidth||1920; canvas.h=v.baseHeight||1080; }
+        });
+        pushState();
+      }
+      if(m.op===7){
+        var p=pending[m.d.requestId];
+        if(p){ delete pending[m.d.requestId];
+          if(m.d.requestStatus&&m.d.requestStatus.result) p.res(m.d.responseData||{});
+          else p.res(null); }
+      }
+      if(m.op===5){ // something changed in OBS — refresh the deck
+        if(/Scene|SceneItem|Input/.test(m.d.eventType||"")) schedulePush();
+      }
+    };
+  }
+
+  function obs(type,data){
+    return new Promise(function(res){
+      if(!ws||ws.readyState!==1||!obsReady){ res(null); return; }
+      var id="r"+(++reqId);
+      pending[id]={res:res};
+      ws.send(JSON.stringify({op:6,d:{requestType:type,requestId:id,requestData:data||{}}}));
+      setTimeout(function(){ if(pending[id]){ delete pending[id]; res(null); } },4000);
+    });
+  }
+
+  var pushTimer=null;
+  function schedulePush(){ clearTimeout(pushTimer); pushTimer=setTimeout(pushState,250); }
+
+  function pushState(){
+    if(!obsReady){ send("state",{ok:false}); return; }
+    obs("GetSceneList",{}).then(function(sl){
+      if(!sl){ send("state",{ok:false}); return; }
+      var cur=sl.currentProgramSceneName;
+      var scenes=(sl.scenes||[]).map(function(s){return s.sceneName;}).reverse();
+      obs("GetSceneItemList",{sceneName:cur}).then(function(il){
+        var items=((il&&il.sceneItems)||[]).map(function(it){
+          return {id:it.sceneItemId,name:it.sourceName,on:it.sceneItemEnabled!==false};
+        }).reverse();
+        send("state",{ok:true,scenes:scenes,current:cur,items:items});
+      });
+    });
+  }
+
+  function note(t){ setRow("b_last",t); }
+
+  function handle(p){
+    if(!p||!p.cmd)return;
+    note(p.cmd);
+    if(p.cmd==="ping"){ pushState(); return; }
+    if(p.cmd==="scene"){ obs("SetCurrentProgramScene",{sceneName:p.scene}).then(schedulePush); return; }
+    if(p.cmd==="vis"){
+      obs("SetSceneItemEnabled",{sceneName:p.scene,sceneItemId:p.id,sceneItemEnabled:!!p.on}).then(schedulePush);
+      return;
+    }
+    if(p.cmd==="move"||p.cmd==="scale"||p.cmd==="snap"){
+      obs("GetSceneItemTransform",{sceneName:p.scene,sceneItemId:p.id}).then(function(r){
+        if(!r||!r.sceneItemTransform)return;
+        var t=r.sceneItemTransform, nt={};
+        if(p.cmd==="move"){
+          nt.positionX=t.positionX+(p.dx||0);
+          nt.positionY=t.positionY+(p.dy||0);
+        }
+        if(p.cmd==="scale"){
+          var f=1+(p.dir>0?SCALE_STEP:-SCALE_STEP);
+          nt.scaleX=Math.max(.05,t.scaleX*f);
+          nt.scaleY=Math.max(.05,t.scaleY*f);
+        }
+        if(p.cmd==="snap"){
+          var w=(t.sourceWidth||0)*t.scaleX, h=(t.sourceHeight||0)*t.scaleY;
+          var m=24;
+          var pos={
+            tl:[m,m], tr:[canvas.w-w-m,m], bl:[m,canvas.h-h-m], br:[canvas.w-w-m,canvas.h-h-m],
+            c:[(canvas.w-w)/2,(canvas.h-h)/2]
+          }[p.where]||[0,0];
+          nt.positionX=pos[0]; nt.positionY=pos[1];
+        }
+        obs("SetSceneItemTransform",{sceneName:p.scene,sceneItemId:p.id,sceneItemTransform:nt}).then(schedulePush);
+      });
+    }
+  }
+
+  function send(event,payload){
+    if(channel){ try{ channel.send({type:"broadcast",event:event,payload:payload}); }catch(e){} }
+  }
+
+  channel=sb.channel(CHANNEL,{config:{broadcast:{self:false},presence:{key:"bridge"}}});
+  channel.on("broadcast",{event:"cmd"},function(m){ handle(m.payload); });
+  channel.subscribe(function(st){
+    if(st==="SUBSCRIBED"){ channel.track({role:"bridge",at:Date.now()}); setRow("b_rel","connected","ok"); pushState(); }
+    if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"||st==="CLOSED"){
+      setRow("b_rel","reconnecting","bad");
+      setTimeout(function(){ try{sb.removeChannel(channel);}catch(e){} location.reload(); },4000);
+    }
+  });
+  obsConnect();
+  setInterval(function(){ if(obsReady) pushState(); },10000);
+}
+
+/* ==========================================================
+   DECK — your phone
+   ========================================================== */
+var PIN=localStorage.getItem("slam_pin")||"", ROLE=localStorage.getItem("slam_role")||"";
+var ST={ok:false,scenes:[],current:"",items:[]};
+var selId=null, bridgeUp=false;
+
+function getRole(pin){ return sb.rpc("pq_role",{p_pin:pin}).then(function(r){return r.error?null:r.data;}); }
+function cmd(p){ if(channel){ p.scene=ST.current; try{ channel.send({type:"broadcast",event:"cmd",payload:p}); }catch(e){} } }
+
+function deckConnect(){
+  channel=sb.channel(CHANNEL,{config:{broadcast:{self:false},presence:{key:"deck-"+Math.random().toString(36).slice(2,7)}}});
+  channel.on("broadcast",{event:"state"},function(m){ ST=m.payload||ST; paint(); });
+  channel.on("presence",{event:"sync"},function(){
+    var st=channel.presenceState(), f=false;
+    Object.keys(st).forEach(function(k){ st[k].forEach(function(x){ if(x.role==="bridge") f=true; }); });
+    bridgeUp=f; paintStatus();
+  });
+  channel.subscribe(function(s){
+    if(s==="SUBSCRIBED"){ channel.track({role:"deck",at:Date.now()}); cmd({cmd:"ping"}); paintStatus(); }
+    if(s==="CHANNEL_ERROR"||s==="TIMED_OUT"||s==="CLOSED"){
+      bridgeUp=false; paintStatus();
+      setTimeout(function(){ try{sb.removeChannel(channel);}catch(e){} deckConnect(); },3000);
+    }
+  });
+}
+
+function paintStatus(){
+  var d=document.getElementById("dot"), s=document.getElementById("stat");
+  if(!d||!s)return;
+  var live=bridgeUp&&ST.ok;
+  d.className="dot "+(live?"live":"dead");
+  s.textContent = !bridgeUp ? "Bridge offline" : (ST.ok?"OBS connected":"Bridge up, no OBS");
+}
+
+function renderDeck(){
+  if(!PIN||!ROLE){ renderGate(); return; }
+  app.innerHTML=
+  '<div class="wrap">'+
+    '<div class="mast"><div class="brand">PR<span class="z">0</span>CESS_LIVE <span class="z">//</span> OBS CONTROL</div></div>'+
+    '<div class="status"><span class="dot" id="dot"></span><span id="stat">Connecting</span><span class="who" id="who"></span></div>'+
+    '<div><div class="setlab">Scene</div><div class="chips" id="scenes"></div></div>'+
+    '<div><div class="setlab">Sources</div><div id="srcs"></div></div>'+
+    '<div><div class="setlab">Move</div><div id="mover"></div></div>'+
+    '<div class="hint help"><a href="#" id="refresh">refresh</a><a href="#" id="lock" class="sub">lock</a></div>'+
+  '</div>';
+  document.getElementById("who").textContent=ROLE;
+  document.getElementById("refresh").onclick=function(e){ e.preventDefault(); cmd({cmd:"ping"}); };
+  document.getElementById("lock").onclick=function(e){ e.preventDefault();
+    PIN="";ROLE="";localStorage.removeItem("slam_pin");localStorage.removeItem("slam_role");render(); };
+  paint(); paintStatus(); deckConnect();
+}
+
+function paint(){
+  var sc=document.getElementById("scenes");
+  if(!sc)return;
+  sc.innerHTML="";
+  ST.scenes.forEach(function(n){
+    var b=document.createElement("button");
+    b.className="chip"+(n===ST.current?" live":"");
+    b.textContent=n;
+    b.onclick=function(){ cmd({cmd:"scene",scene:n}); };
+    sc.appendChild(b);
+  });
+
+  var sw=document.getElementById("srcs");
+  sw.innerHTML="";
+  if(!ST.items.length){
+    sw.innerHTML='<div class="nosel">Nothing to show yet.<br>If the dot is red, the bridge isn\u2019t running.</div>';
+  }else{
+    var list=document.createElement("div"); list.className="srclist";
+    var stillThere=false;
+    ST.items.forEach(function(it){
+      if(it.id===selId) stillThere=true;
+      var row=document.createElement("div");
+      row.className="src"+(it.id===selId?" sel":"")+(it.on?"":" off");
+      var nm=document.createElement("div"); nm.className="nm"; nm.textContent=it.name;
+      var eye=document.createElement("button");
+      eye.className="eye"+(it.on?" on":"");
+      eye.textContent=it.on?"Shown":"Hidden";
+      eye.onclick=function(ev){ ev.stopPropagation(); cmd({cmd:"vis",id:it.id,on:!it.on}); };
+      row.appendChild(nm); row.appendChild(eye);
+      row.onclick=function(){ selId=(selId===it.id?null:it.id); paint(); };
+      list.appendChild(row);
+    });
+    if(!stillThere) selId=null;
+    sw.appendChild(list);
+  }
+
+  var mv=document.getElementById("mover");
+  mv.innerHTML="";
+  if(selId===null){
+    mv.innerHTML='<div class="nosel">Tap a source above to move it.</div>';
+    return;
+  }
+  var pad=document.createElement("div"); pad.className="pad";
+  function padBtn(txt,fn,cls){
+    var b=document.createElement("button");
+    b.textContent=txt; if(cls) b.className=cls;
+    if(fn) b.onclick=fn; return b;
+  }
+  pad.appendChild(padBtn("","",("blank")));
+  pad.appendChild(padBtn("\u2191",function(){cmd({cmd:"move",id:selId,dy:-NUDGE});}));
+  pad.appendChild(padBtn("","",("blank")));
+  pad.appendChild(padBtn("\u2190",function(){cmd({cmd:"move",id:selId,dx:-NUDGE});}));
+  pad.appendChild(padBtn("CENTER",function(){cmd({cmd:"snap",id:selId,where:"c"});},"ctr"));
+  pad.appendChild(padBtn("\u2192",function(){cmd({cmd:"move",id:selId,dx:NUDGE});}));
+  pad.appendChild(padBtn("","",("blank")));
+  pad.appendChild(padBtn("\u2193",function(){cmd({cmd:"move",id:selId,dy:NUDGE});}));
+  pad.appendChild(padBtn("","",("blank")));
+  mv.appendChild(pad);
+
+  var sz=document.createElement("div"); sz.className="two"; sz.style.marginTop="10px";
+  var smaller=document.createElement("button"); smaller.textContent="Smaller";
+  smaller.onclick=function(){ cmd({cmd:"scale",id:selId,dir:-1}); };
+  var bigger=document.createElement("button"); bigger.textContent="Bigger";
+  bigger.onclick=function(){ cmd({cmd:"scale",id:selId,dir:1}); };
+  sz.appendChild(smaller); sz.appendChild(bigger);
+  mv.appendChild(sz);
+
+  var corners=document.createElement("div"); corners.className="two"; corners.style.marginTop="6px";
+  [["\u2196","tl"],["\u2197","tr"],["\u2199","bl"],["\u2198","br"]].forEach(function(p){
+    var b=document.createElement("button"); b.textContent=p[0];
+    b.onclick=function(){ cmd({cmd:"snap",id:selId,where:p[1]}); };
+    corners.appendChild(b);
+  });
+  mv.appendChild(corners);
+
+  var note=document.createElement("div"); note.className="stepnote";
+  note.textContent=NUDGE+"px per tap";
+  mv.appendChild(note);
+}
+
+function renderGate(){
+  app.innerHTML='<div class="wrap"><div class="mast"><div class="brand">PR<span class="z">0</span>CESS_LIVE <span class="z">//</span> OBS CONTROL</div></div>'+
+    '<div class="gatebox"><p class="hint" style="text-align:center;margin-bottom:14px">Crew PIN to control OBS.</p>'+
+    '<input id="pin" type="password" placeholder="PIN">'+
+    '<button class="act" id="unlock" style="width:100%;margin-top:12px">Unlock</button>'+
+    '<div class="hint" id="gerr" style="text-align:center;margin-top:8px"></div></div></div>';
+  function go(){
+    var v=document.getElementById("pin").value.trim(); if(!v)return;
+    document.getElementById("gerr").textContent="Checking\u2026";
+    getRole(v).then(function(role){
+      if(role==="owner"||role==="mod"){
+        PIN=v;ROLE=role;
+        localStorage.setItem("slam_pin",v);localStorage.setItem("slam_role",role);
+        render();
+      }else{
+        document.getElementById("gerr").textContent="Wrong PIN.";
+        document.getElementById("pin").value="";
+      }
+    }).catch(function(){ document.getElementById("gerr").textContent="Can\u2019t reach the server."; });
+  }
+  document.getElementById("unlock").onclick=go;
+  document.getElementById("pin").onkeydown=function(e){ if(e.key==="Enter") go(); };
+}
+
+function render(){ if(IS_BRIDGE) runBridge(); else renderDeck(); }
+render();
+})();
+</script>
+</body>
+</html>

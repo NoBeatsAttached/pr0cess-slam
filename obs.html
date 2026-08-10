@@ -94,6 +94,7 @@ body.bridge{background:transparent}
   font-size:13px;padding:8px 13px;border-radius:7px;cursor:pointer;transition:.14s}
 .sbtn:hover{color:var(--text);border-color:var(--dimmer)}
 .sbtn.warn:hover{color:var(--red);border-color:var(--red)}
+
 .hint{font-size:12.5px;color:var(--dimmer);margin-top:11px}
 .hint kbd{background:var(--panel2);border:1px solid var(--line2);border-radius:4px;
   padding:1px 6px;font:inherit;font-size:11.5px;color:var(--dim)}
@@ -643,7 +644,7 @@ function runBridge(){
     }
   });
   obsConnect();
-  setInterval(function(){ if(obsReady&&deckHere) pushState(); },3000);
+  setInterval(function(){ if(obsReady&&deckHere) pushState(); },10000);
   setInterval(function(){ if(obsReady&&!deckHere) pushState(); },30000);
 }
 /* ==========================================================

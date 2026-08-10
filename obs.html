@@ -1,4 +1,4 @@
-\<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
@@ -36,6 +36,9 @@ body.bridge{background:transparent}
 .undo{background:transparent;border:1px solid var(--line2);color:var(--dimmer);
   font:inherit;font-size:13px;padding:8px 15px;border-radius:7px;cursor:pointer;transition:.14s}
 .undo.armed{border-color:var(--amber);color:var(--amber)}
+.eye{background:transparent;border:1px solid var(--line2);color:var(--dimmer);font:inherit;
+  font-size:13px;padding:8px 15px;border-radius:7px;cursor:pointer;transition:.14s;margin-right:7px}
+.eye.on{border-color:var(--amber);color:var(--amber)}
 .undo:disabled{opacity:.4;cursor:default}
 
 /* rows */
@@ -52,13 +55,22 @@ body.bridge{background:transparent}
   border:1px solid var(--line);border-radius:10px;overflow:hidden;touch-action:none;user-select:none}
 .mapempty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   font-size:13px;color:var(--dimmer)}
-.mi{position:absolute;border:1px solid #45454A;border-radius:2px;overflow:hidden;cursor:grab}
+.mapframe{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;z-index:0}
+.mi{position:absolute;z-index:2;border:1px solid #45454A;border-radius:2px;overflow:hidden;cursor:grab}
 .mi b{display:block;font-size:11px;font-weight:400;color:var(--dimmer);padding:4px 6px;
   white-space:nowrap;pointer-events:none}
-.mi.sel{border:2px solid var(--amber);background:var(--amber-soft);z-index:5;overflow:visible;cursor:grabbing}
+.mi.sel{border:2px solid var(--amber);background:var(--amber-soft);z-index:6;overflow:visible;cursor:grabbing}
 .mi.sel b{color:var(--amber)}
 .mi.off{opacity:.3;border-style:dashed}
 .mi.stray{border-color:var(--red);border-style:dotted}
+.mi.pend{border:2px dashed var(--amber);background:rgba(255,176,32,.09)}
+.mi.pend b{color:var(--amber)}
+.commit{display:flex;align-items:center;gap:10px;margin-top:10px;background:rgba(255,176,32,.1);
+  border:1px solid var(--amber);border-radius:9px;padding:11px 14px}
+.commit .msg{font-size:13.5px;color:var(--amber)}
+.cbtn{background:var(--amber);color:#0A0A0A;border:none;font:inherit;font-weight:500;font-size:13.5px;
+  padding:9px 18px;border-radius:7px;cursor:pointer}
+.cbtn.quiet{background:transparent;border:1px solid var(--line2);color:var(--dim);font-weight:400}
 .mi .hd{position:absolute;background:var(--amber);border-radius:2px;z-index:8}
 .hd.nw,.hd.ne,.hd.sw,.hd.se{width:13px;height:13px}
 .hd.n,.hd.s{left:50%;margin-left:-13px;width:26px;height:9px}
@@ -208,6 +220,7 @@ function runBridge(){
   var pw=rawPw();
   var ws=null, obsReady=false, reqId=0, pending={}, canvas={w:1920,h:1080};
   var curScene="", deckHere=false, lastErr="", textKind="", kinds=[];
+  var eyeOn=false, imgFmt="", eyeTimer=null;
   var undoStack=[];
   function pushUndo(label,fn){
     undoStack.push({label:label,fn:fn});
@@ -223,6 +236,7 @@ function runBridge(){
     '<div class="brow"><span class="k">OBS</span><span class="v" id="b_obs">connecting</span></div>'+
     '<div class="brow"><span class="k">Relay</span><span class="v" id="b_rel">connecting</span></div>'+
     '<div class="brow"><span class="k">Last</span><span class="v" id="b_last">\u2014</span></div>'+
+    '<div class="brow"><span class="k">View</span><span class="v" id="b_shot">off</span></div>'+
     '<div class="brow"><span class="k">View</span><span class="v" id="b_shot">\u2014</span></div>'+
     '<p class="hint" style="margin-top:14px">Leave this running. It takes commands from the deck and passes them to OBS.</p>'+
     '</div></div>';
@@ -258,6 +272,13 @@ function runBridge(){
         obsReady=true; setRow("b_obs","connected","ok");
         obs("GetVideoSettings",{}).then(function(v){
           if(v){ canvas.w=v.baseWidth||1920; canvas.h=v.baseHeight||1080; }
+        });
+        obs("GetVersion",{}).then(function(v){
+          var f=(v&&v.supportedImageFormats)||[];
+          var want=["jpg","jpeg","png","bmp"];
+          for(var i=0;i<want.length;i++){ if(f.indexOf(want[i])>-1){ imgFmt=want[i]; break; } }
+          if(!imgFmt&&f.length) imgFmt=f[0];
+          setRow("b_shot", imgFmt?("ready ("+imgFmt+")"):"no image format");
         });
         obs("GetInputKindList",{}).then(function(r){
           kinds=((r&&r.inputKinds)||[]);
@@ -336,10 +357,43 @@ function runBridge(){
 
   function note(t){ setRow("b_last",t); }
 
+  function shot(){
+    if(!obsReady||!curScene){ setRow("b_shot","no scene","bad"); return; }
+    if(!imgFmt){ setRow("b_shot","no image format","bad"); return; }
+    lastErr="";
+    var req={sourceName:curScene,imageFormat:imgFmt,imageWidth:400};
+    if(imgFmt!=="png"&&imgFmt!=="bmp") req.imageCompressionQuality=32;
+    obs("GetSourceScreenshot",req).then(function(r){
+      if(!r||!r.imageData){ setRow("b_shot",lastErr||"no image returned","bad"); return; }
+      var kb=Math.round(r.imageData.length/1024);
+      if(kb>180){ setRow("b_shot",kb+"kb too big","bad"); return; }
+      try{
+        channel.send({type:"broadcast",event:"shot",payload:{img:r.imageData}});
+        setRow("b_shot",kb+"kb","ok");
+      }catch(e){ setRow("b_shot","send failed","bad"); }
+    });
+  }
+
   function handle(p){
     if(!p||!p.cmd)return;
     note(p.cmd);
     if(p.cmd==="ping"){ pushState(); return; }
+    if(p.cmd==="reveal"){
+      var rn=p.name, rs=p.secs||0;
+      obs("SetSceneItemEnabled",{sceneName:p.scene,sceneItemId:p.id,sceneItemEnabled:true})
+        .then(schedulePush);
+      pushUndo("reveal",function(){ obs("RemoveInput",{inputName:rn}).then(schedulePush); });
+      if(rs) setTimeout(function(){ obs("RemoveInput",{inputName:rn}).then(schedulePush); },rs*1000);
+      note("revealed "+rn);
+      return;
+    }
+    if(p.cmd==="eye"){
+      eyeOn=!!p.on;
+      clearInterval(eyeTimer); eyeTimer=null;
+      if(eyeOn){ shot(); eyeTimer=setInterval(shot,1400); }
+      else setRow("b_shot","off");
+      return;
+    }
     if(p.cmd==="raw"){
       obs("GetSceneItemList",{sceneName:p.scene}).then(function(il){
         var raw=((il&&il.sceneItems)||[]);
@@ -415,11 +469,12 @@ function runBridge(){
       var tn="PRC_DROP_"+Date.now();
       obs("CreateInput",{sceneName:p.scene,inputName:tn,inputKind:textKind,
         inputSettings:{text:String(p.msg||""),font:{face:"Arial",size:p.size||96,style:"Bold"}},
-        sceneItemEnabled:true}).then(function(r){
+        sceneItemEnabled:!p.staged}).then(function(r){
         if(!r){ note("text failed: "+lastErr); return; }
         obs("SetSceneItemTransform",{sceneName:p.scene,sceneItemId:r.sceneItemId,
           sceneItemTransform:{alignment:0,positionX:canvas.w/2,positionY:canvas.h/2}});
-        if(p.secs) setTimeout(function(){ obs("RemoveInput",{inputName:tn}).then(schedulePush); },p.secs*1000);
+        if(p.staged){ send("made",{id:r.sceneItemId,name:tn,secs:p.secs||0}); }
+        else if(p.secs) setTimeout(function(){ obs("RemoveInput",{inputName:tn}).then(schedulePush); },p.secs*1000);
         schedulePush();
       });
       return;
@@ -429,13 +484,14 @@ function runBridge(){
       obs("CreateInput",{sceneName:p.scene,inputName:mn,inputKind:"ffmpeg_source",
         inputSettings:{is_local_file:false,input:String(p.url||""),looping:!!p.loop,
                        restart_on_activate:true,clear_on_media_end:true},
-        sceneItemEnabled:true}).then(function(r){
+        sceneItemEnabled:!p.staged}).then(function(r){
         if(!r){ note("media failed: "+lastErr); return; }
         obs("SetSceneItemTransform",{sceneName:p.scene,sceneItemId:r.sceneItemId,
           sceneItemTransform:{alignment:0,positionX:canvas.w/2,positionY:canvas.h/2,
             boundsType:"OBS_BOUNDS_SCALE_INNER",boundsAlignment:0,
             boundsWidth:Math.round(canvas.w*0.6),boundsHeight:Math.round(canvas.h*0.6)}});
-        if(p.secs) setTimeout(function(){ obs("RemoveInput",{inputName:mn}).then(schedulePush); },p.secs*1000);
+        if(p.staged){ send("made",{id:r.sceneItemId,name:mn,secs:p.secs||0}); }
+        else if(p.secs) setTimeout(function(){ obs("RemoveInput",{inputName:mn}).then(schedulePush); },p.secs*1000);
         schedulePush();
       });
       return;
@@ -595,7 +651,10 @@ function runBridge(){
    ========================================================== */
 var PIN=localStorage.getItem("slam_pin")||"", ROLE=localStorage.getItem("slam_role")||"";
 var ST={ok:false,scenes:[],current:"",items:[],cw:1920,ch:1080};
-var selId=null, bridgeUp=false, dragging=false;
+var selId=null, bridgeUp=false, dragging=false, eyeOn=false, lastFrame=null;
+var pending={}, pendNew={};
+function hasPending(){ var k; for(k in pending) return true; for(k in pendNew) return true; return false; }
+function boxOf(it){ return pending[it.id]||{x:it.x,y:it.y,w:it.w,h:it.h}; }
 var SLAM_OVERLAY="https://nobeatsattached.github.io/pr0cess-slam/#overlay";
 
 function getRole(pin){ return sb.rpc("pq_role",{p_pin:pin}).then(function(r){return r.error?null:r.data;}); }
@@ -612,6 +671,18 @@ function deckConnect(){
     b.disabled=(n===0);
     b.className="undo"+(n?" armed":"");
     b.textContent=n?("undo "+(m.payload.last||"")):"undo";
+  });
+  channel.on("broadcast",{event:"made"},function(m){
+    if(!m.payload)return;
+    pendNew[m.payload.id]={name:m.payload.name,secs:m.payload.secs||0};
+    selId=m.payload.id;
+    cmd({cmd:"ping"});
+  });
+  channel.on("broadcast",{event:"shot"},function(m){
+    if(!m.payload||!m.payload.img)return;
+    lastFrame=m.payload.img;
+    var im=document.querySelector(".mapframe");
+    if(im) im.src=lastFrame; else paint();
   });
   channel.on("broadcast",{event:"raw"},function(m){
     var box=el("rawout"); if(!box||!m.payload)return;
@@ -648,12 +719,14 @@ function renderDeck(){
       '<span class="dot" id="dot"></span>'+
       '<span class="scene bad" id="scene">connecting</span>'+
       '<span class="spacer"></span>'+
+      '<button class="eye" id="eye">live view</button>'+
       '<button class="undo" id="undo" disabled>undo</button>'+
     '</div>'+
 
     '<div class="row" id="scenes"></div>'+
     '<div class="map" id="map"></div>'+
     '<div class="strip" id="strip"></div>'+
+    '<div id="commitbar"></div>'+
     '<div class="row" id="srcs" style="padding-top:14px"></div>'+
     '<div class="hint">Drag to move, pull an edge or corner to stretch. '+
       '<kbd>\u2190\u2191\u2192\u2193</kbd> nudge \u00B7 <kbd>shift</kbd> bigger steps \u00B7 '+
@@ -692,6 +765,12 @@ function renderDeck(){
   '</div>';
 
   el("undo").onclick=function(){ cmd({cmd:"undo"}); };
+  el("eye").onclick=function(){
+    eyeOn=!eyeOn;
+    this.className="eye"+(eyeOn?" on":"");
+    if(!eyeOn){ lastFrame=null; paint(); }
+    cmd({cmd:"eye",on:eyeOn});
+  };
   el("refresh").onclick=function(e){ e.preventDefault(); cmd({cmd:"ping"}); };
   el("diag").onclick=function(e){ e.preventDefault(); cmd({cmd:"raw"}); };
   el("lock").onclick=function(e){ e.preventDefault();
@@ -714,17 +793,22 @@ function wireKeys(){
   document.addEventListener("keydown",function(e){
     var t=e.target.tagName;
     if(t==="INPUT"||t==="TEXTAREA")return;
-    if(e.key==="Escape"){ selId=null; paint(); return; }
+    if(e.key==="Enter"){ if(hasPending()){ commitAll(); e.preventDefault(); } return; }
+    if(e.key==="Escape"){ if(hasPending()) discardAll(); else { selId=null; paint(); } return; }
     if(e.key==="u"||e.key==="U"){ cmd({cmd:"undo"}); return; }
     var s=sel();
     if(!s)return;
     if(e.key==="h"||e.key==="H"){ cmd({cmd:"vis",id:s.id,on:!s.on}); return; }
-    var step=e.shiftKey?NUDGE*5:NUDGE, moved=false;
-    if(e.key==="ArrowLeft"){ cmd({cmd:"move",id:s.id,dx:-step}); moved=true; }
-    if(e.key==="ArrowRight"){ cmd({cmd:"move",id:s.id,dx:step}); moved=true; }
-    if(e.key==="ArrowUp"){ cmd({cmd:"move",id:s.id,dy:-step}); moved=true; }
-    if(e.key==="ArrowDown"){ cmd({cmd:"move",id:s.id,dy:step}); moved=true; }
-    if(moved) e.preventDefault();
+    var step=e.shiftKey?NUDGE*5:NUDGE, dx=0, dy=0;
+    if(e.key==="ArrowLeft") dx=-step;
+    if(e.key==="ArrowRight") dx=step;
+    if(e.key==="ArrowUp") dy=-step;
+    if(e.key==="ArrowDown") dy=step;
+    if(dx||dy){
+      var b=boxOf(s);
+      pending[s.id]={x:b.x+dx,y:b.y+dy,w:b.w,h:b.h};
+      paint(); e.preventDefault();
+    }
   });
 }
 
@@ -790,18 +874,63 @@ function wireMap(){
     if(drag.mode==="move"){
       var dx=(e.clientX-drag.ox)/drag.r.width*cw;
       var dy=(e.clientY-drag.oy)/drag.r.height*ch;
-      if(Math.abs(dx)>1||Math.abs(dy)>1) cmd({cmd:"move",id:drag.id,dx:Math.round(dx),dy:Math.round(dy)});
+      if(Math.abs(dx)>1||Math.abs(dy)>1){
+        pending[drag.id]={x:Math.round(drag.x0+dx),y:Math.round(drag.y0+dy),
+                          w:Math.round(drag.w0),h:Math.round(drag.h0)};
+      }
     }else if(drag.last){
-      cmd({cmd:"box",id:drag.id,x:drag.last.x,y:drag.last.y,w:drag.last.w,h:drag.last.h});
+      pending[drag.id]={x:drag.last.x,y:drag.last.y,w:drag.last.w,h:drag.last.h};
     }
     drag=null; dragging=false;
-    setTimeout(function(){ cmd({cmd:"ping"}); },400);
+    paint();
   }
   map.addEventListener("pointerup",endDrag);
   map.addEventListener("pointercancel",function(){ drag=null; dragging=false; paint(); });
 }
 function liveNums(x,y,w,h){
   var n=el("nums"); if(n) n.textContent=x+", "+y+"  \u00B7  "+Math.round(w)+"\u00D7"+Math.round(h);
+}
+
+function resizeBy(s,f){
+  var b=boxOf(s);
+  var nw=Math.max(8,Math.round(b.w*f)), nh=Math.max(8,Math.round(b.h*f));
+  pending[s.id]={x:Math.round(b.x+(b.w-nw)/2),y:Math.round(b.y+(b.h-nh)/2),w:nw,h:nh};
+  paint();
+}
+function paintCommit(){
+  var c=el("commitbar"); if(!c)return;
+  if(!hasPending()){ c.innerHTML=""; return; }
+  var n=0,k;
+  for(k in pending) n++;
+  for(k in pendNew) n++;
+  c.innerHTML='<span class="msg">'+n+(n===1?" change":" changes")+' not live yet</span>'+
+    '<span class="spacer"></span>'+
+    '<button class="cbtn quiet" id="cdiscard">discard</button>'+
+    '<button class="cbtn" id="ccommit">put it on screen</button>';
+  el("ccommit").onclick=commitAll;
+  el("cdiscard").onclick=discardAll;
+}
+
+function commitAll(){
+  var id;
+  for(id in pending){
+    var b=pending[id];
+    cmd({cmd:"box",id:parseInt(id,10),x:b.x,y:b.y,w:b.w,h:b.h});
+  }
+  for(id in pendNew){
+    var n=pendNew[id];
+    cmd({cmd:"reveal",id:parseInt(id,10),name:n.name,secs:n.secs});
+  }
+  pending={}; pendNew={};
+  setTimeout(function(){ cmd({cmd:"ping"}); },450);
+  paint();
+}
+function discardAll(){
+  var id;
+  for(id in pendNew){ cmd({cmd:"del",name:pendNew[id].name,id:parseInt(id,10)}); }
+  pending={}; pendNew={};
+  setTimeout(function(){ cmd({cmd:"ping"}); },450);
+  paint();
 }
 
 /* ---------- build / drop ---------- */
@@ -851,12 +980,14 @@ function wireDrop(){
   el("d_send").onclick=function(){
     var v=el("d_text").value.trim();
     if(!v){ dnote("Type something first"); return; }
-    cmd({cmd:"text",msg:v,secs:secs}); el("d_text").value=""; dnote("Sent");
+    cmd({cmd:"text",msg:v,secs:secs,staged:true}); el("d_text").value="";
+    dnote("Placed off-air \u2014 position it, then commit");
   };
   el("d_play").onclick=function(){
     var v=el("d_url").value.trim();
     if(!/^https?:\/\//i.test(v)){ dnote("Needs a direct http link"); return; }
-    cmd({cmd:"media",url:v,secs:secs}); el("d_url").value=""; dnote("Playing");
+    cmd({cmd:"media",url:v,secs:secs,staged:true}); el("d_url").value="";
+    dnote("Placed off-air \u2014 position it, then commit");
   };
   el("d_nuke").onclick=function(){ cmd({cmd:"nuke"}); dnote("Cleared"); };
 }
@@ -865,6 +996,7 @@ function wireDrop(){
 function paint(){
   if(dragging) return;
   paintStatus();
+  paintCommit();
 
   var sc=el("scenes");
   if(sc){
@@ -882,6 +1014,11 @@ function paint(){
   if(mp){
     var cw=ST.cw||1920, ch=ST.ch||1080;
     mp.innerHTML="";
+    if(eyeOn&&lastFrame){
+      var fr=document.createElement("img");
+      fr.className="mapframe"; fr.alt=""; fr.src=lastFrame;
+      mp.appendChild(fr);
+    }
     if(!ST.items.length){
       var e2=document.createElement("div");
       e2.className="mapempty";
@@ -891,14 +1028,16 @@ function paint(){
     ST.items.slice().reverse().forEach(function(it){
       var d=document.createElement("div");
       var stray=((it.x+it.w<0)||(it.y+it.h<0)||(it.x>cw)||(it.y>ch));
-      d.className="mi"+(it.id===selId?" sel":"")+(it.on?"":" off")+(stray?" stray":"");
+      var bx=boxOf(it), isPend=!!(pending[it.id]||pendNew[it.id]);
+      d.className="mi"+(it.id===selId?" sel":"")+(it.on||pendNew[it.id]?"":" off")+
+        (stray?" stray":"")+(isPend?" pend":"");
       d.setAttribute("data-id",it.id);
-      d.setAttribute("data-x",it.x||0); d.setAttribute("data-y",it.y||0);
-      d.setAttribute("data-w",it.w||0); d.setAttribute("data-h",it.h||0);
-      d.style.left=((it.x||0)/cw*100)+"%";
-      d.style.top=((it.y||0)/ch*100)+"%";
-      d.style.width=(Math.max(it.w||0,cw*0.03)/cw*100)+"%";
-      d.style.height=(Math.max(it.h||0,ch*0.03)/ch*100)+"%";
+      d.setAttribute("data-x",bx.x||0); d.setAttribute("data-y",bx.y||0);
+      d.setAttribute("data-w",bx.w||0); d.setAttribute("data-h",bx.h||0);
+      d.style.left=((bx.x||0)/cw*100)+"%";
+      d.style.top=((bx.y||0)/ch*100)+"%";
+      d.style.width=(Math.max(bx.w||0,cw*0.03)/cw*100)+"%";
+      d.style.height=(Math.max(bx.h||0,ch*0.03)/ch*100)+"%";
       var s=document.createElement("b"); s.textContent=it.name; d.appendChild(s);
       if(it.id===selId){
         ["nw","n","ne","e","se","s","sw","w"].forEach(function(c){
@@ -935,7 +1074,8 @@ function paint(){
     }
     var who=document.createElement("span"); who.className="who"; who.textContent=s.name;
     var nums=document.createElement("span"); nums.className="nums"; nums.id="nums";
-    nums.textContent=s.x+", "+s.y+"  \u00B7  "+s.w+"\u00D7"+s.h;
+    var sb0=boxOf(s);
+    nums.textContent=sb0.x+", "+sb0.y+"  \u00B7  "+sb0.w+"\u00D7"+sb0.h;
     st.appendChild(who); st.appendChild(nums);
     var sp=document.createElement("span"); sp.className="spacer"; st.appendChild(sp);
 
@@ -945,9 +1085,12 @@ function paint(){
       st.appendChild(b); return b;
     }
     sb2(s.on?"hide":"show",function(){ cmd({cmd:"vis",id:s.id,on:!s.on}); });
-    sb2("center",function(){ cmd({cmd:"snap",id:s.id,where:"c"}); });
-    sb2("smaller",function(){ cmd({cmd:"scale",id:s.id,dir:-1}); });
-    sb2("bigger",function(){ cmd({cmd:"scale",id:s.id,dir:1}); });
+    sb2("center",function(){
+      var b=boxOf(s), cw2=ST.cw||1920, ch2=ST.ch||1080;
+      pending[s.id]={x:Math.round((cw2-b.w)/2),y:Math.round((ch2-b.h)/2),w:b.w,h:b.h}; paint();
+    });
+    sb2("smaller",function(){ resizeBy(s,1-SCALE_STEP); });
+    sb2("bigger",function(){ resizeBy(s,1+SCALE_STEP); });
     if(ROLE==="owner"){
       var armed=false, tm=null;
       var db=sb2("delete",function(){

@@ -56,11 +56,16 @@ body.bridge{background:transparent}
 .mapempty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   font-size:13px;color:var(--dimmer)}
 .mapframe{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;z-index:0}
-.mi{position:absolute;z-index:2;border:1px solid #45454A;border-radius:2px;overflow:hidden;cursor:grab}
-.mi b{display:block;font-size:11px;font-weight:400;color:var(--dimmer);padding:4px 6px;
-  white-space:nowrap;pointer-events:none}
+.mi{position:absolute;z-index:2;border:1px solid rgba(255,255,255,.42);border-radius:2px;
+  overflow:hidden;cursor:grab;box-shadow:0 0 0 1px rgba(0,0,0,.55)}
+.mi b{display:inline-block;max-width:100%;font-size:11px;font-weight:400;color:#EDEDED;
+  background:rgba(0,0,0,.72);padding:3px 6px;border-radius:0 0 3px 0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.mi.tiny b{display:none}
+.mi.tiny:hover b,.mi.sel b{display:inline-block}
+.mi:hover{border-color:rgba(255,255,255,.8);z-index:4}
 .mi.sel{border:2px solid var(--amber);background:var(--amber-soft);z-index:6;overflow:visible;cursor:grabbing}
-.mi.sel b{color:var(--amber)}
+.mi.sel b{color:#0A0A0A;background:var(--amber)}
 .mi.off{opacity:.3;border-style:dashed}
 .mi.stray{border-color:var(--red);border-style:dotted}
 .mi.pend{border:2px dashed var(--amber);background:rgba(255,176,32,.09)}
@@ -221,7 +226,7 @@ function runBridge(){
   var pw=rawPw();
   var ws=null, obsReady=false, reqId=0, pending={}, canvas={w:1920,h:1080};
   var curScene="", deckHere=false, lastErr="", textKind="", kinds=[];
-  var eyeOn=false, imgFmt="", eyeTimer=null;
+  var eyeOn=false, imgFmt="", eyeTimer=null, eyeQ="soft";
   var undoStack=[];
   function pushUndo(label,fn){
     undoStack.push({label:label,fn:fn});
@@ -362,12 +367,13 @@ function runBridge(){
     if(!obsReady||!curScene){ setRow("b_shot","no scene","bad"); return; }
     if(!imgFmt){ setRow("b_shot","no image format","bad"); return; }
     lastErr="";
-    var req={sourceName:curScene,imageFormat:imgFmt,imageWidth:400};
-    if(imgFmt!=="png"&&imgFmt!=="bmp") req.imageCompressionQuality=32;
+    var sharp=(eyeQ==="sharp");
+    var req={sourceName:curScene,imageFormat:imgFmt,imageWidth:sharp?760:400};
+    if(imgFmt!=="png"&&imgFmt!=="bmp") req.imageCompressionQuality=sharp?72:32;
     obs("GetSourceScreenshot",req).then(function(r){
       if(!r||!r.imageData){ setRow("b_shot",lastErr||"no image returned","bad"); return; }
       var kb=Math.round(r.imageData.length/1024);
-      if(kb>180){ setRow("b_shot",kb+"kb too big","bad"); return; }
+      if(kb>220){ setRow("b_shot",kb+"kb too big","bad"); return; }
       try{
         channel.send({type:"broadcast",event:"shot",payload:{img:r.imageData}});
         setRow("b_shot",kb+"kb","ok");
@@ -390,6 +396,7 @@ function runBridge(){
     }
     if(p.cmd==="eye"){
       eyeOn=!!p.on;
+      if(p.q) eyeQ=p.q;
       clearInterval(eyeTimer); eyeTimer=null;
       if(eyeOn){ shot(); eyeTimer=setInterval(shot,1400); }
       else setRow("b_shot","off");
@@ -767,10 +774,13 @@ function renderDeck(){
 
   el("undo").onclick=function(){ cmd({cmd:"undo"}); };
   el("eye").onclick=function(){
-    eyeOn=!eyeOn;
+    if(!eyeOn){ eyeOn=true; eyeQ="soft"; }
+    else if(eyeQ==="soft"){ eyeQ="sharp"; }
+    else { eyeOn=false; }
     this.className="eye"+(eyeOn?" on":"");
+    this.textContent=eyeOn?("live view \u00B7 "+eyeQ):"live view";
     if(!eyeOn){ lastFrame=null; paint(); }
-    cmd({cmd:"eye",on:eyeOn});
+    cmd({cmd:"eye",on:eyeOn,q:eyeQ});
   };
   el("refresh").onclick=function(e){ e.preventDefault(); cmd({cmd:"ping"}); };
   el("diag").onclick=function(e){ e.preventDefault(); cmd({cmd:"raw"}); };
@@ -1030,8 +1040,9 @@ function paint(){
       var d=document.createElement("div");
       var stray=((it.x+it.w<0)||(it.y+it.h<0)||(it.x>cw)||(it.y>ch));
       var bx=boxOf(it), isPend=!!(pending[it.id]||pendNew[it.id]);
+      var tiny=((bx.w||0)/cw<0.10)||((bx.h||0)/ch<0.10);
       d.className="mi"+(it.id===selId?" sel":"")+(it.on||pendNew[it.id]?"":" off")+
-        (stray?" stray":"")+(isPend?" pend":"");
+        (stray?" stray":"")+(isPend?" pend":"")+(tiny?" tiny":"");
       d.setAttribute("data-id",it.id);
       d.setAttribute("data-x",bx.x||0); d.setAttribute("data-y",bx.y||0);
       d.setAttribute("data-w",bx.w||0); d.setAttribute("data-h",bx.h||0);

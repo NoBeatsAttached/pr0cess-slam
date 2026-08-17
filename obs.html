@@ -39,6 +39,7 @@ body.bridge{background:transparent}
 .eye{background:transparent;border:1px solid var(--line2);color:var(--dimmer);font:inherit;
   font-size:13px;padding:8px 15px;border-radius:7px;cursor:pointer;transition:.14s;margin-right:7px}
 .eye.on{border-color:var(--amber);color:var(--amber)}
+.eye.qbtn{font-size:12px;padding:8px 12px;margin-right:7px}
 .undo:disabled{opacity:.4;cursor:default}
 
 /* rows */
@@ -100,6 +101,14 @@ body.bridge{background:transparent}
 .sbtn:hover{color:var(--text);border-color:var(--dimmer)}
 .sbtn.warn:hover{color:var(--red);border-color:var(--red)}
 
+.health{display:flex;gap:22px;flex-wrap:wrap;align-items:baseline;padding:14px 0 2px}
+.hs{display:flex;flex-direction:column;gap:3px}
+.hs .k{font-size:11px;color:var(--dimmer)}
+.hs .v{font-size:15px;color:var(--dim);font-variant-numeric:tabular-nums}
+.hs .v.good{color:var(--green)}
+.hs .v.warn{color:var(--amber)}
+.hs .v.bad{color:var(--red)}
+.hs .v.idle{color:var(--dimmer)}
 .hint{font-size:12.5px;color:var(--dimmer);margin-top:11px}
 .hint kbd{background:var(--panel2);border:1px solid var(--line2);border-radius:4px;
   padding:1px 6px;font:inherit;font-size:11.5px;color:var(--dim)}
@@ -320,6 +329,35 @@ function runBridge(){
   var pushTimer=null;
   function schedulePush(){ clearTimeout(pushTimer); pushTimer=setTimeout(pushState,250); }
 
+  var lastBytes=0, lastBytesAt=0, health={};
+  function pullHealth(){
+    return obs("GetStreamStatus",{}).then(function(ss){
+      return obs("GetStats",{}).then(function(st){
+        var h={};
+        if(ss){
+          h.live=!!ss.outputActive;
+          h.up=ss.outputDuration||0;
+          h.skipped=ss.outputSkippedFrames||0;
+          h.total=ss.outputTotalFrames||0;
+          var b=ss.outputBytes||0, now=Date.now();
+          if(lastBytesAt&&b>lastBytes){
+            h.kbps=Math.round(((b-lastBytes)*8/1000)/((now-lastBytesAt)/1000));
+          }
+          lastBytes=b; lastBytesAt=now;
+        }
+        if(st){
+          h.cpu=Math.round((st.cpuUsage||0)*10)/10;
+          h.render=Math.round((st.averageFrameRenderTime||0)*100)/100;
+          h.renderMissed=st.renderSkippedFrames||0;
+          h.renderTotal=st.renderTotalFrames||0;
+          h.fps=Math.round(st.activeFps||0);
+        }
+        health=h;
+        return h;
+      });
+    });
+  }
+
   function pushState(){
     if(!obsReady){ send("state",{ok:false}); return; }
     obs("GetSceneList",{}).then(function(sl){
@@ -355,7 +393,10 @@ function runBridge(){
           });
         });
         Promise.all(jobs).then(function(items){
-          send("state",{ok:true,scenes:scenes,current:cur,items:items,cw:canvas.w,ch:canvas.h});
+          pullHealth().then(function(h){
+            send("state",{ok:true,scenes:scenes,current:cur,items:items,
+                          health:h,cw:canvas.w,ch:canvas.h});
+          });
         });
       });
     });
@@ -658,7 +699,7 @@ function runBridge(){
    DECK
    ========================================================== */
 var PIN=localStorage.getItem("slam_pin")||"", ROLE=localStorage.getItem("slam_role")||"";
-var ST={ok:false,scenes:[],current:"",items:[],cw:1920,ch:1080};
+var ST={ok:false,scenes:[],current:"",items:[],health:{},cw:1920,ch:1080};
 var selId=null, bridgeUp=false, dragging=false, eyeOn=false, lastFrame=null;
 var pending={}, pendNew={};
 function hasPending(){ var k; for(k in pending) return true; for(k in pendNew) return true; return false; }
@@ -688,6 +729,7 @@ function deckConnect(){
   });
   channel.on("broadcast",{event:"shot"},function(m){
     if(!m.payload||!m.payload.img)return;
+    if(!eyeOn) return;
     lastFrame=m.payload.img;
     var im=document.querySelector(".mapframe");
     if(im) im.src=lastFrame; else paint();
@@ -728,9 +770,11 @@ function renderDeck(){
       '<span class="scene bad" id="scene">connecting</span>'+
       '<span class="spacer"></span>'+
       '<button class="eye" id="eye">live view</button>'+
+      '<button class="eye qbtn" id="eyeq" style="display:none">soft</button>'+
       '<button class="undo" id="undo" disabled>undo</button>'+
     '</div>'+
 
+    '<div class="health" id="health"></div>'+
     '<div class="row" id="scenes"></div>'+
     '<div class="map" id="map"></div>'+
     '<div class="strip" id="strip"></div>'+
@@ -774,13 +818,22 @@ function renderDeck(){
 
   el("undo").onclick=function(){ cmd({cmd:"undo"}); };
   el("eye").onclick=function(){
-    if(!eyeOn){ eyeOn=true; eyeQ="soft"; }
-    else if(eyeQ==="soft"){ eyeQ="sharp"; }
-    else { eyeOn=false; }
+    eyeOn=!eyeOn;
     this.className="eye"+(eyeOn?" on":"");
-    this.textContent=eyeOn?("live view \u00B7 "+eyeQ):"live view";
-    if(!eyeOn){ lastFrame=null; paint(); }
+    el("eyeq").style.display=eyeOn?"":"none";
+    if(!eyeOn){
+      lastFrame=null;
+      var fr=document.querySelector(".mapframe");
+      if(fr&&fr.parentNode) fr.parentNode.removeChild(fr);
+      paint();
+    }
     cmd({cmd:"eye",on:eyeOn,q:eyeQ});
+  };
+  el("eyeq").onclick=function(){
+    eyeQ=(eyeQ==="soft")?"sharp":"soft";
+    this.textContent=eyeQ;
+    this.className="eye qbtn"+(eyeQ==="sharp"?" on":"");
+    if(eyeOn) cmd({cmd:"eye",on:true,q:eyeQ});
   };
   el("refresh").onclick=function(e){ e.preventDefault(); cmd({cmd:"ping"}); };
   el("diag").onclick=function(e){ e.preventDefault(); cmd({cmd:"raw"}); };
@@ -1019,6 +1072,40 @@ function paint(){
       b.onclick=function(){ cmd({cmd:"scene",scene:n}); };
       sc.appendChild(b);
     });
+  }
+
+  var hv=el("health");
+  if(hv){
+    var h=ST.health||{};
+    if(!ST.ok){ hv.innerHTML=""; }
+    else{
+      function cell(k,v,cls){
+        return '<div class="hs"><span class="k">'+k+'</span><span class="v '+(cls||"")+'">'+v+'</span></div>';
+      }
+      function dur(sec){
+        sec=Math.floor(sec/1000);
+        var hh=Math.floor(sec/3600), mm=Math.floor((sec%3600)/60), ss2=sec%60;
+        function p(n){return (n<10?"0":"")+n;}
+        return (hh>0?hh+":"+p(mm):mm+":"+p(ss2))+(hh>0?":"+p(ss2):"");
+      }
+      var out="";
+      out+=cell("stream", h.live?"live":"offline", h.live?"good":"idle");
+      if(h.live){
+        out+=cell("uptime",dur(h.up||0));
+        if(typeof h.kbps==="number") out+=cell("bitrate",h.kbps+" kbps");
+        var dropPct=(h.total?((h.skipped||0)/h.total*100):0);
+        out+=cell("dropped",dropPct.toFixed(2)+"%",
+          dropPct>1?"bad":(dropPct>0.2?"warn":"good"));
+      }
+      var rm=(h.renderTotal?((h.renderMissed||0)/h.renderTotal*100):0);
+      out+=cell("render lag",rm.toFixed(2)+"%", rm>1?"bad":(rm>0.2?"warn":"good"));
+      if(typeof h.render==="number") out+=cell("frame time",h.render.toFixed(1)+" ms",
+        h.render>12?"bad":(h.render>8?"warn":""));
+      if(typeof h.cpu==="number") out+=cell("cpu",h.cpu.toFixed(1)+"%",
+        h.cpu>70?"bad":(h.cpu>45?"warn":""));
+      if(typeof h.fps==="number") out+=cell("fps",h.fps);
+      hv.innerHTML=out;
+    }
   }
 
   var mp=el("map");

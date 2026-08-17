@@ -11,7 +11,7 @@
 :root{
   --void:#050506; --text:#EDEDEB; --dim:#B4B9BF; --dimmer:#676C74;
   --line:#212429; --acc:#3A93D6;
-  --h:46px; --fs:15px; --pad:20px;
+  --h:58px; --fs:17px; --pad:20px;
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{background:transparent;width:100%;height:100%;overflow:hidden;
@@ -77,8 +77,8 @@ body[data-pos="bottom"] #bar{bottom:0;border-bottom:none;border-top:1px solid va
 
   var s = parseFloat(q.get('scale')||'1');
   if(s && s!==1){
-    b.style.setProperty('--h',(46*s)+'px');
-    b.style.setProperty('--fs',(15*s)+'px');
+    b.style.setProperty('--h',(58*s)+'px');
+    b.style.setProperty('--fs',(17*s)+'px');
     b.style.setProperty('--pad',(20*s)+'px');
   }
 

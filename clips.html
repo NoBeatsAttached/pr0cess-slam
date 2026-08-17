@@ -240,8 +240,11 @@ function renderDeck(){
     '<div class="lab">The reel \u2014 <span id="count"></span></div>'+
     '<div id="list"></div>'+
 
-    '<div class="note">Put <b>clips.html#overlay</b> in his BRB / offline scene as a browser source, '+
-      '1920\u00D71080, and leave "Shutdown source when not visible" <b>checked</b> so it only runs when that scene is up.</div>'+
+    '<div class="lab">OBS link</div>'+
+    '<input class="tin" id="ovurl" readonly onclick="this.select()">'+
+    '<button class="btn quiet" id="copyov">Copy OBS link</button>'+
+    '<div class="note">Browser source in his BRB / offline scene, 1920\u00D71080. Leave '+
+      '"Shutdown source when not visible" <b>checked</b> so it only runs when that scene is up.</div>'+
     '<button class="btn quiet" id="lock" style="margin-top:22px">lock</button>'+
   '</div>';
 
@@ -249,6 +252,15 @@ function renderDeck(){
   el("skip").onclick=function(){ if(channel){ try{ channel.send({type:"broadcast",event:"skip",payload:{}}); }catch(e){} } };
   el("lock").onclick=function(){
     PIN="";ROLE="";localStorage.removeItem("cl_pin");localStorage.removeItem("cl_role");render(); };
+  var f=el("ovurl"), u=location.origin+location.pathname+"#overlay";
+  f.value=u;
+  el("copyov").onclick=function(){
+    f.select();
+    var ok=false; try{ ok=document.execCommand("copy"); }catch(e){}
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(u).then(function(){},function(){});
+    this.textContent=ok?"Copied":"Select + Ctrl-C";
+    var b=this; setTimeout(function(){ b.textContent="Copy OBS link"; },1800);
+  };
   paintList(); paintStatus(); deckConnect();
 }
 

@@ -108,7 +108,7 @@ input[type=range]{width:100%;accent-color:var(--acc)}
 <div id="gate" style="display:none">
   <span class="brand">PR<span class="z">0</span>CESS_LIVE // TICKER</span>
   <div class="sub">CREW ACCESS</div>
-  <input type="password" id="pin" inputmode="numeric" placeholder="PIN"
+  <input type="password" id="pinbox" inputmode="numeric" placeholder="PIN"
     style="width:100%;background:var(--panel);border:1px solid var(--line2);color:var(--text);
     font:700 20px 'JetBrains Mono',monospace;padding:15px;border-radius:9px;text-align:center;letter-spacing:.4em" />
   <button class="pri big" id="unlock">UNLOCK</button>
@@ -338,7 +338,7 @@ function getRole(pin){ return sb.rpc("pq_role",{p_pin:pin}).then(function(r){ret
 function bootGate(){
   document.body.className="deck";
   document.getElementById("gate").style.display="block";
-  var inp=document.getElementById("pin"), err=document.getElementById("err"), btn=document.getElementById("unlock");
+  var inp=document.getElementById("pinbox"), err=document.getElementById("err"), btn=document.getElementById("unlock");
   function tryPin(){
     var v=inp.value.trim(); if(!v) return;
     btn.textContent="CHECKING"; err.textContent="";

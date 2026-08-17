@@ -14,7 +14,7 @@
   --line:#212429; --line2:#2E3238;
   --text:#EDEDEB; --dim:#B4B9BF; --dimmer:#676C74;
   --acc:#3A93D6; --hot:#D8455F;
-  --h:46px; --fs:15px; --pad:20px;
+  --h:58px; --fs:17px; --pad:20px;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{font-family:'JetBrains Mono',ui-monospace,monospace;-webkit-font-smoothing:antialiased}
@@ -257,8 +257,8 @@ function bootOverlay(){
   document.body.dataset.pos=(q.get("pos")||"top").toLowerCase();
   var s=parseFloat(q.get("scale")||"1");
   if(s&&s!==1){
-    document.body.style.setProperty("--h",(46*s)+"px");
-    document.body.style.setProperty("--fs",(15*s)+"px");
+    document.body.style.setProperty("--h",(58*s)+"px");
+    document.body.style.setProperty("--fs",(17*s)+"px");
     document.body.style.setProperty("--pad",(20*s)+"px");
   }
   if(q.get("pinned")==="0") document.getElementById("pin").classList.add("off");

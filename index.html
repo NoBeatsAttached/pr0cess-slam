@@ -266,8 +266,11 @@ function renderDeck(){
     '<div><div class="setlab">Board <a href="#" id="editlink" style="color:var(--electric);text-decoration:none;margin-left:10px;font-size:9px">edit</a></div><div id="boardzone"></div></div>'+
     '<button id="kill">Clear the screen</button>'+
     '<div id="log"><div class="empty">No shots yet</div></div>'+
-    '<div class="hint help">In OBS: Browser source \u2192 this page\u2019s <b>#overlay</b> URL, 1920\u00D71080, dragged to the top of the scene.'+
-      '<br><a href="#overlay" target="_blank">open overlay \u2197</a>'+
+    '<div class="hint help">In OBS: Browser source, 1920\u00D71080, dragged to the top of the scene.'+
+      '<br><input id="ovurl" readonly onclick="this.select()" style="width:100%;max-width:420px;margin:10px auto 0;display:block;'+
+      'background:var(--panel);border:1px solid var(--line2);color:var(--dim);font:inherit;font-size:11px;padding:9px;text-align:center">'+
+      '<a href="#" id="copyov" style="display:inline-block;margin-top:9px">copy OBS link</a>'+
+      '<a href="#overlay" target="_blank" class="sub">open overlay \u2197</a>'+
       '<a href="#" id="sharelink" class="sub">share board</a>'+
       '<a href="#" id="lock" class="sub">lock</a></div>'+
   '</div>';
@@ -284,6 +287,19 @@ function renderDeck(){
     this.textContent=editing?"done":"edit";
   };
   document.getElementById("sharelink").onclick=function(e){ e.preventDefault(); openShare(); };
+  (function(){
+    var f=document.getElementById("ovurl"); if(!f)return;
+    var u=location.origin+location.pathname+"#overlay";
+    f.value=u;
+    var b=document.getElementById("copyov");
+    if(b) b.onclick=function(e){
+      e.preventDefault(); f.select();
+      var ok=false; try{ ok=document.execCommand("copy"); }catch(err){}
+      if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(u).then(function(){},function(){});
+      b.textContent=ok?"copied":"select + ctrl-c";
+      setTimeout(function(){ b.textContent="copy OBS link"; },1800);
+    };
+  })();
   document.getElementById("lock").onclick=function(e){ e.preventDefault();
     PIN="";ROLE="";localStorage.removeItem("slam_pin");localStorage.removeItem("slam_role");render(); };
   connect();

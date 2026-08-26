@@ -130,7 +130,12 @@ function runOverlay(){
     var v=document.createElement("video");
     v.autoplay=true; v.playsInline=true; v.controls=false;
     v.preload="auto"; v.setAttribute("disablepictureinpicture","");
+    v.muted=false; v.defaultMuted=false; v.volume=1;
     v.style.opacity="0";
+    /* if the browser forced a muted start, unmute the moment it is actually playing */
+    v.addEventListener("playing",function(){
+      if(v.muted){ v.muted=false; v.volume=1; }
+    });
     stage.appendChild(v);
     return v;
   }
@@ -168,6 +173,7 @@ function runOverlay(){
     if(spare.getAttribute("data-src")!==n.src){
       spare.setAttribute("data-src",n.src);
       spare.src=n.src;
+      spare.muted=false; spare.volume=1;
       try{ spare.load(); }catch(e){}
     }
   }
@@ -191,9 +197,19 @@ function runOverlay(){
       play.onerror=function(){ fails++; timer=setTimeout(next, fails>3?4000:400); };
       play.ontimeupdate=function(){ lastTick=Date.now(); };
       play.currentTime=0;
+      play.muted=false; play.volume=1;
       play.style.opacity="1";
-      var p=play.play();
-      if(p&&p.catch) p.catch(function(){ play.muted=true; play.play(); });
+      (function start(tries){
+        var p=play.play();
+        if(p&&p.catch) p.catch(function(){
+          if(tries<2){ setTimeout(function(){ start(tries+1); },250); return; }
+          play.muted=true;
+          var q=play.play();
+          if(q&&q.then) q.then(function(){
+            setTimeout(function(){ play.muted=false; play.volume=1; },120);
+          });
+        });
+      })(0);
       if(old&&old!==play){
         old.style.opacity="0";
         old.pause();

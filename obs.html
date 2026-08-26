@@ -435,6 +435,21 @@ function runBridge(){
       note("revealed "+rn);
       return;
     }
+    if(p.cmd==="reload"){
+      var rnm=p.name||"";
+      if(/^BRIDGE$/i.test(rnm)){ note("refused: that\u2019s the bridge"); send("said",{t:"That\u2019s the bridge \u2014 refreshing it would cut your own connection."}); return; }
+      obs("GetInputSettings",{inputName:rnm}).then(function(si){
+        if(!si){ send("said",{t:"Couldn\u2019t read that source."}); return; }
+        if((si.inputKind||"").indexOf("browser")!==0){
+          send("said",{t:rnm+" isn\u2019t a browser source."}); return;
+        }
+        obs("PressInputPropertiesButton",{inputName:rnm,propertyName:"refreshnocache"}).then(function(r){
+          note(r?("refreshed "+rnm):("refresh failed: "+lastErr));
+          send("said",{t:r?("Refreshed "+rnm):("Refresh failed: "+(lastErr||"unknown"))});
+        });
+      });
+      return;
+    }
     if(p.cmd==="eye"){
       eyeOn=!!p.on;
       if(p.q) eyeQ=p.q;
@@ -734,6 +749,12 @@ function deckConnect(){
     var im=document.querySelector(".mapframe");
     if(im) im.src=lastFrame; else paint();
   });
+  channel.on("broadcast",{event:"said"},function(m){
+    if(!m.payload||!m.payload.t)return;
+    var h=el("saidbar"); if(!h)return;
+    h.textContent=m.payload.t; h.style.display="block";
+    setTimeout(function(){ if(el("saidbar")) el("saidbar").style.display="none"; },4000);
+  });
   channel.on("broadcast",{event:"raw"},function(m){
     var box=el("rawout"); if(!box||!m.payload)return;
     box.style.display="block"; box.value=JSON.stringify(m.payload); box.focus(); box.select();
@@ -779,6 +800,8 @@ function renderDeck(){
     '<div class="map" id="map"></div>'+
     '<div class="strip" id="strip"></div>'+
     '<div id="commitbar"></div>'+
+    '<div id="saidbar" style="display:none;margin-top:10px;background:var(--panel);color:var(--dim);'+
+      'font-size:13px;padding:11px 14px;border-radius:9px"></div>'+
     '<div class="row" id="srcs" style="padding-top:14px"></div>'+
     '<div class="hint">Drag to move, pull an edge or corner to stretch. '+
       '<kbd>\u2190\u2191\u2192\u2193</kbd> nudge \u00B7 <kbd>shift</kbd> bigger steps \u00B7 '+
@@ -1187,6 +1210,11 @@ function paint(){
     sb2("center",function(){
       var b=boxOf(s), cw2=ST.cw||1920, ch2=ST.ch||1080;
       pending[s.id]={x:Math.round((cw2-b.w)/2),y:Math.round((ch2-b.h)/2),w:b.w,h:b.h}; paint();
+    });
+    var rb=sb2("reload",function(){
+      if(/^BRIDGE$/i.test(s.name)){ rb.textContent="not the bridge"; setTimeout(function(){ rb.textContent="reload"; },2200); return; }
+      cmd({cmd:"reload",name:s.name});
+      rb.textContent="sent"; setTimeout(function(){ rb.textContent="reload"; },1600);
     });
     sb2("smaller",function(){ resizeBy(s,1-SCALE_STEP); });
     sb2("bigger",function(){ resizeBy(s,1+SCALE_STEP); });

@@ -82,7 +82,7 @@ li{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px sol
 li:last-child{border-bottom:none}
 li .txt{flex:1;min-width:0;font-size:13.5px;letter-spacing:.05em;word-break:break-word;line-height:1.4}
 li.off .txt{color:var(--dimmer);text-decoration:line-through}
-li .mini{padding:9px 11px;font-size:12px;border-radius:8px;flex:none}
+li .mini{padding:9px 9px;font-size:11px;border-radius:8px;flex:none;min-width:34px}
 li .del{color:var(--hot);border-color:#3a2229}
 .hint{font-size:11px;color:var(--dimmer);letter-spacing:.06em;line-height:1.6;margin-top:9px}
 .big{width:100%;padding:19px;font-size:14px;letter-spacing:.2em;margin-top:4px}
@@ -286,8 +286,19 @@ function paintList(){
     var tx=document.createElement("div"); tx.className="txt"; tx.innerHTML=fmt(m.t); li.appendChild(tx);
 
     var up=document.createElement("button"); up.className="mini"; up.textContent="\u2191";
+    up.title="move up";
     up.onclick=function(){ if(i>0){ var x=ST.msgs.splice(i,1)[0]; ST.msgs.splice(i-1,0,x); paintList(); pushState(); } };
     li.appendChild(up);
+
+    var dn=document.createElement("button"); dn.className="mini"; dn.textContent="\u2193";
+    dn.title="move down";
+    dn.onclick=function(){ if(i<ST.msgs.length-1){ var x=ST.msgs.splice(i,1)[0]; ST.msgs.splice(i+1,0,x); paintList(); pushState(); } };
+    li.appendChild(dn);
+
+    var ed=document.createElement("button"); ed.className="mini"; ed.textContent="EDIT";
+    ed.title="edit this line";
+    ed.onclick=function(){ startEdit(li,tx,m); };
+    li.appendChild(ed);
 
     var tg=document.createElement("button"); tg.className="mini"; tg.textContent=m.on?"ON":"OFF";
     tg.onclick=function(){ m.on=m.on?0:1; paintList(); pushState(); };
@@ -300,6 +311,35 @@ function paintList(){
     ul.appendChild(li);
   });
   document.getElementById("cnt").textContent=ST.msgs.filter(function(m){return m.on;}).length;
+}
+
+/* inline edit — swaps the row text for a field, saves on Enter or blur */
+function startEdit(li,tx,m){
+  if(li.querySelector("input.editfield"))return;
+  var inp=document.createElement("input");
+  inp.type="text"; inp.className="editfield"; inp.value=m.t;
+  inp.style.cssText="flex:1;min-width:0;background:var(--void);border:1px solid var(--acc);"+
+    "color:var(--text);font:inherit;font-size:13px;letter-spacing:.06em;padding:7px 9px;outline:none";
+  tx.style.display="none";
+  li.insertBefore(inp,tx.nextSibling);
+  inp.focus(); inp.select();
+  var done=false;
+  function save(commit){
+    if(done)return; done=true;
+    if(commit){
+      var v=inp.value.trim();
+      if(v) m.t=v;
+    }
+    if(inp.parentNode) inp.parentNode.removeChild(inp);
+    tx.style.display="";
+    paintList();
+    if(commit) pushState();
+  }
+  inp.onkeydown=function(e){
+    if(e.key==="Enter"){ e.preventDefault(); save(true); }
+    if(e.key==="Escape"){ e.preventDefault(); save(false); }
+  };
+  inp.onblur=function(){ save(true); };
 }
 function wireOvLink(){
   var f=document.getElementById("ovurl"); if(!f)return;

@@ -72,7 +72,10 @@ body.bridge{background:transparent}
 .mi.pend{border:2px dashed var(--amber);background:rgba(255,176,32,.09)}
 .mi.pend b{color:var(--amber)}
 .commit{display:flex;align-items:center;gap:10px;margin-top:10px;background:rgba(255,176,32,.1);
-  border:1px solid var(--amber);border-radius:9px;padding:11px 14px}
+  border:1px solid var(--amber);border-radius:9px;padding:11px 14px;flex-wrap:wrap}
+.commit.off{background:rgba(255,75,110,.1);border-color:var(--red)}
+.commit.off .msg{color:var(--red)}
+.commit.off .cbtn{background:var(--red)}
 .commit .msg{font-size:13.5px;color:var(--amber)}
 .cbtn{background:var(--amber);color:#0A0A0A;border:none;font:inherit;font-weight:500;font-size:13.5px;
   padding:9px 18px;border-radius:7px;cursor:pointer}
@@ -402,7 +405,11 @@ function runBridge(){
     });
   }
 
-  function note(t){ setRow("b_last",t); }
+  function note(t){
+    setRow("b_last",t);
+    /* the operator is on another machine — surface it there too */
+    if(/fail|refus|error|no |can.t|isn.t|wrong/i.test(t)) send("said",{t:t});
+  }
 
   function shot(){
     if(!obsReady||!curScene){ setRow("b_shot","no scene","bad"); return; }
@@ -716,7 +723,7 @@ function runBridge(){
 var PIN=localStorage.getItem("slam_pin")||"", ROLE=localStorage.getItem("slam_role")||"";
 var ST={ok:false,scenes:[],current:"",items:[],health:{},cw:1920,ch:1080};
 var selId=null, bridgeUp=false, dragging=false, eyeOn=false, lastFrame=null;
-var pending={}, pendNew={};
+var pending={}, pendNew={}, pendScene="";
 function hasPending(){ var k; for(k in pending) return true; for(k in pendNew) return true; return false; }
 function boxOf(it){ return pending[it.id]||{x:it.x,y:it.y,w:it.w,h:it.h}; }
 var SLAM_OVERLAY="https://nobeatsattached.github.io/pr0cess-slam/#overlay";
@@ -724,6 +731,13 @@ var SLAM_OVERLAY="https://nobeatsattached.github.io/pr0cess-slam/#overlay";
 function getRole(pin){ return sb.rpc("pq_role",{p_pin:pin}).then(function(r){return r.error?null:r.data;}); }
 function cmd(p){ if(channel){ if(!p.scene) p.scene=ST.current; try{ channel.send({type:"broadcast",event:"cmd",payload:p}); }catch(e){} } }
 function el(id){ return document.getElementById(id); }
+var saidTimer=null;
+function said(t){
+  var h=el("saidbar"); if(!h)return;
+  h.textContent=t; h.style.display="block";
+  clearTimeout(saidTimer);
+  saidTimer=setTimeout(function(){ if(el("saidbar")) el("saidbar").style.display="none"; },5000);
+}
 function sel(){ var f=null; ST.items.forEach(function(it){ if(it.id===selId) f=it; }); return f; }
 
 function deckConnect(){
@@ -738,6 +752,7 @@ function deckConnect(){
   });
   channel.on("broadcast",{event:"made"},function(m){
     if(!m.payload)return;
+    pendScene=pendScene||ST.current;
     pendNew[m.payload.id]={name:m.payload.name,secs:m.payload.secs||0};
     selId=m.payload.id;
     cmd({cmd:"ping"});
@@ -750,10 +765,7 @@ function deckConnect(){
     if(im) im.src=lastFrame; else paint();
   });
   channel.on("broadcast",{event:"said"},function(m){
-    if(!m.payload||!m.payload.t)return;
-    var h=el("saidbar"); if(!h)return;
-    h.textContent=m.payload.t; h.style.display="block";
-    setTimeout(function(){ if(el("saidbar")) el("saidbar").style.display="none"; },4000);
+    if(m.payload&&m.payload.t) said(m.payload.t);
   });
   channel.on("broadcast",{event:"raw"},function(m){
     var box=el("rawout"); if(!box||!m.payload)return;
@@ -799,7 +811,7 @@ function renderDeck(){
     '<div class="row" id="scenes"></div>'+
     '<div class="map" id="map"></div>'+
     '<div class="strip" id="strip"></div>'+
-    '<div id="commitbar"></div>'+
+    '<div id="commitbar" class="commit" style="display:none"></div>'+
     '<div id="saidbar" style="display:none;margin-top:10px;background:var(--panel);color:var(--dim);'+
       'font-size:13px;padding:11px 14px;border-radius:9px"></div>'+
     '<div class="row" id="srcs" style="padding-top:14px"></div>'+
@@ -871,6 +883,9 @@ function renderDeck(){
     wireBuild(); wireDrop();
   }
 
+  window.onbeforeunload=function(){
+    if(hasPending()) return "You have changes that aren't live yet.";
+  };
   wireMap(); wireKeys();
   paint(); paintStatus(); deckConnect();
 }
@@ -893,6 +908,7 @@ function wireKeys(){
     if(e.key==="ArrowDown") dy=step;
     if(dx||dy){
       var b=boxOf(s);
+      pendScene=pendScene||ST.current;
       pending[s.id]={x:b.x+dx,y:b.y+dy,w:b.w,h:b.h};
       paint(); e.preventDefault();
     }
@@ -962,10 +978,12 @@ function wireMap(){
       var dx=(e.clientX-drag.ox)/drag.r.width*cw;
       var dy=(e.clientY-drag.oy)/drag.r.height*ch;
       if(Math.abs(dx)>1||Math.abs(dy)>1){
+        pendScene=pendScene||ST.current;
         pending[drag.id]={x:Math.round(drag.x0+dx),y:Math.round(drag.y0+dy),
                           w:Math.round(drag.w0),h:Math.round(drag.h0)};
       }
     }else if(drag.last){
+      pendScene=pendScene||ST.current;
       pending[drag.id]={x:drag.last.x,y:drag.last.y,w:drag.last.w,h:drag.last.h};
     }
     drag=null; dragging=false;
@@ -980,17 +998,22 @@ function liveNums(x,y,w,h){
 
 function resizeBy(s,f){
   var b=boxOf(s);
+  pendScene=pendScene||ST.current;
   var nw=Math.max(8,Math.round(b.w*f)), nh=Math.max(8,Math.round(b.h*f));
   pending[s.id]={x:Math.round(b.x+(b.w-nw)/2),y:Math.round(b.y+(b.h-nh)/2),w:nw,h:nh};
   paint();
 }
 function paintCommit(){
   var c=el("commitbar"); if(!c)return;
-  if(!hasPending()){ c.innerHTML=""; return; }
+  if(!hasPending()){ c.innerHTML=""; c.style.display="none"; return; }
+  c.style.display="flex";
   var n=0,k;
   for(k in pending) n++;
   for(k in pendNew) n++;
-  c.innerHTML='<span class="msg">'+n+(n===1?" change":" changes")+' not live yet</span>'+
+  var off=(pendScene&&pendScene!==ST.current);
+  c.className="commit"+(off?" off":"");
+  c.innerHTML='<span class="msg">'+n+(n===1?" change":" changes")+' not live yet'+
+    (off?(' \u2014 staged on \u201C'+pendScene+'\u201D'):'')+'</span>'+
     '<span class="spacer"></span>'+
     '<button class="cbtn quiet" id="cdiscard">discard</button>'+
     '<button class="cbtn" id="ccommit">put it on screen</button>';
@@ -1000,6 +1023,10 @@ function paintCommit(){
 
 function commitAll(){
   var id;
+  if(pendScene&&pendScene!==ST.current){
+    said("Those changes were staged on \u201C"+pendScene+"\u201D. Switch back to commit them, or discard.");
+    return;
+  }
   for(id in pending){
     var b=pending[id];
     cmd({cmd:"box",id:parseInt(id,10),x:b.x,y:b.y,w:b.w,h:b.h});
@@ -1008,14 +1035,14 @@ function commitAll(){
     var n=pendNew[id];
     cmd({cmd:"reveal",id:parseInt(id,10),name:n.name,secs:n.secs});
   }
-  pending={}; pendNew={};
+  pending={}; pendNew={}; pendScene="";
   setTimeout(function(){ cmd({cmd:"ping"}); },450);
   paint();
 }
 function discardAll(){
-  var id;
-  for(id in pendNew){ cmd({cmd:"del",name:pendNew[id].name,id:parseInt(id,10)}); }
-  pending={}; pendNew={};
+  var id, sc=pendScene||ST.current;
+  for(id in pendNew){ cmd({cmd:"del",name:pendNew[id].name,id:parseInt(id,10),scene:sc}); }
+  pending={}; pendNew={}; pendScene="";
   setTimeout(function(){ cmd({cmd:"ping"}); },450);
   paint();
 }
@@ -1209,6 +1236,7 @@ function paint(){
     sb2(s.on?"hide":"show",function(){ cmd({cmd:"vis",id:s.id,on:!s.on}); });
     sb2("center",function(){
       var b=boxOf(s), cw2=ST.cw||1920, ch2=ST.ch||1080;
+      pendScene=pendScene||ST.current;
       pending[s.id]={x:Math.round((cw2-b.w)/2),y:Math.round((ch2-b.h)/2),w:b.w,h:b.h}; paint();
     });
     var rb=sb2("reload",function(){

@@ -168,7 +168,7 @@ body.bridge{background:transparent}
 var SUPABASE_URL="https://tewcgwhumtmjvfxcvbxl.supabase.co";
 var SUPABASE_ANON_KEY="sb_publishable_1DZr_3nrtELGlEFIR3SIMA_F_ELXSdn";
 var CHANNEL="ch-obs-4bn7yq2";
-var BUILD=8;   /* bump when the bridge gains a command */
+var BUILD=9;   /* bump when the bridge gains a command */
 var OBS_PORT=4455;
 var NUDGE=20;
 var SCALE_STEP=.06;
@@ -445,6 +445,44 @@ function runBridge(){
       pushUndo("reveal",function(){ obs("RemoveInput",{inputName:rn}).then(schedulePush); });
       if(rs) setTimeout(function(){ obs("RemoveInput",{inputName:rn}).then(schedulePush); },rs*1000);
       note("revealed "+rn);
+      return;
+    }
+    if(p.cmd==="geturl"){
+      obs("GetInputSettings",{inputName:p.name}).then(function(si){
+        if(!si){ send("said",{t:"Couldn\u2019t read that source."}); return; }
+        if((si.inputKind||"").indexOf("browser")!==0){
+          send("said",{t:p.name+" isn\u2019t a browser source."}); return;
+        }
+        send("url",{name:p.name,url:(si.inputSettings&&si.inputSettings.url)||""});
+      });
+      return;
+    }
+    if(p.cmd==="seturl"){
+      var un=p.name, nu=p.url;
+      if(/^BRIDGE$/i.test(un)){
+        send("said",{t:"That\u2019s the bridge \u2014 changing its URL would cut your connection."});
+        return;
+      }
+      obs("GetInputSettings",{inputName:un}).then(function(si){
+        if(!si){ send("said",{t:"Couldn\u2019t read that source."}); return; }
+        if((si.inputKind||"").indexOf("browser")!==0){
+          send("said",{t:un+" isn\u2019t a browser source."}); return;
+        }
+        var wasUrl=(si.inputSettings&&si.inputSettings.url)||"";
+        obs("SetInputSettings",{inputName:un,inputSettings:{url:nu},overlay:true}).then(function(r){
+          if(!r){ note("url failed: "+lastErr); return; }
+          pushUndo("url",function(){
+            obs("SetInputSettings",{inputName:un,inputSettings:{url:wasUrl},overlay:true}).then(function(){
+              obs("PressInputPropertiesButton",{inputName:un,propertyName:"refreshnocache"});
+              schedulePush();
+            });
+          });
+          obs("PressInputPropertiesButton",{inputName:un,propertyName:"refreshnocache"});
+          setRow("b_last","url \u2192 "+un);
+          send("said",{t:"Pointed "+un+" at the new link."});
+          schedulePush();
+        });
+      });
       return;
     }
     if(p.cmd==="order"){
@@ -771,7 +809,7 @@ function runBridge(){
 var PIN=localStorage.getItem("slam_pin")||"", ROLE=localStorage.getItem("slam_role")||"";
 var ST={ok:false,scenes:[],current:"",items:[],health:{},cw:1920,ch:1080};
 var selId=null, bridgeUp=false, dragging=false, eyeOn=false, lastFrame=null;
-var pending={}, pendNew={}, pendScene="";
+var pending={}, pendNew={}, pendScene="", urlTarget="";
 function hasPending(){ var k; for(k in pending) return true; for(k in pendNew) return true; return false; }
 function boxOf(it){ return pending[it.id]||{x:it.x,y:it.y,w:it.w,h:it.h}; }
 var SLAM_OVERLAY="https://nobeatsattached.github.io/pr0cess-slam/#overlay";
@@ -811,6 +849,15 @@ function deckConnect(){
     lastFrame=m.payload.img;
     var im=document.querySelector(".mapframe");
     if(im) im.src=lastFrame; else paint();
+  });
+  channel.on("broadcast",{event:"url"},function(m){
+    if(!m.payload)return;
+    var box=el("urlbar"); if(!box)return;
+    urlTarget=m.payload.name;
+    el("urlwho").textContent=m.payload.name;
+    el("urlfield").value=m.payload.url||"";
+    box.style.display="block";
+    el("urlfield").focus(); el("urlfield").select();
   });
   channel.on("broadcast",{event:"said"},function(m){
     if(m.payload&&m.payload.t) said(m.payload.t);
@@ -869,6 +916,15 @@ function renderDeck(){
     '<div class="map" id="map"></div>'+
     '<div class="strip" id="strip"></div>'+
     '<div id="commitbar" class="commit" style="display:none"></div>'+
+    '<div id="urlbar" style="display:none;margin-top:10px;background:var(--panel);border:1px solid var(--amber);'+
+      'border-radius:9px;padding:12px 14px">'+
+      '<div style="font-size:12px;color:var(--dimmer);margin-bottom:8px" id="urlwho"></div>'+
+      '<input id="urlfield" class="tin" style="margin-bottom:8px" placeholder="https://\u2026">'+
+      '<div style="display:flex;gap:8px">'+
+        '<button class="cbtn quiet" id="urlcancel">cancel</button>'+
+        '<button class="cbtn" id="urlsave">point it here</button>'+
+      '</div>'+
+    '</div>'+
     '<div id="saidbar" style="display:none;margin-top:10px;background:var(--panel);color:var(--dim);'+
       'font-size:13px;padding:11px 14px;border-radius:9px"></div>'+
     '<div class="row" id="srcs" style="padding-top:14px"></div>'+
@@ -943,6 +999,19 @@ function renderDeck(){
   window.onbeforeunload=function(){
     if(hasPending()) return "You have changes that aren't live yet.";
   };
+  el("urlcancel").onclick=function(){ el("urlbar").style.display="none"; urlTarget=""; };
+  el("urlsave").onclick=function(){
+    var v=el("urlfield").value.trim();
+    if(!/^https?:\/\//i.test(v)){ said("That needs to start with https://"); return; }
+    if(!urlTarget){ said("Nothing selected."); return; }
+    cmd({cmd:"seturl",name:urlTarget,url:v});
+    el("urlbar").style.display="none"; urlTarget="";
+  };
+  el("urlfield").onkeydown=function(e){
+    if(e.key==="Enter"){ e.preventDefault(); el("urlsave").click(); }
+    if(e.key==="Escape"){ e.preventDefault(); el("urlcancel").click(); }
+  };
+
   wireMap(); wireKeys();
   paint(); paintStatus(); deckConnect();
 }
@@ -1328,6 +1397,11 @@ function paint(){
       wrap.appendChild(pick);
       st.appendChild(wrap);
     }
+
+    sb2("link",function(){
+      cmd({cmd:"geturl",name:s.name});
+      said("Reading "+s.name+"\u2026");
+    });
 
     var rb=sb2("reload",function(){
       if(/^BRIDGE$/i.test(s.name)){ rb.textContent="not the bridge"; setTimeout(function(){ rb.textContent="reload"; },2200); return; }

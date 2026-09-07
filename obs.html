@@ -99,6 +99,10 @@ body.bridge{background:transparent}
 .strip .who{font-size:14px;font-weight:500;color:var(--amber)}
 .strip .nums{font-size:12.5px;color:var(--dimmer);font-variant-numeric:tabular-nums}
 .strip .none{font-size:13px;color:var(--dimmer)}
+.ssel{background:var(--panel2);border:1px solid var(--line2);color:var(--dim);font:inherit;
+  font-size:13px;padding:8px 10px;border-radius:7px;cursor:pointer;max-width:190px}
+.ssel:hover{color:var(--text);border-color:var(--dimmer)}
+.ssel:focus{outline:none;border-color:var(--amber);color:var(--amber)}
 .sbtn{background:var(--panel2);border:1px solid var(--line2);color:var(--dim);font:inherit;
   font-size:13px;padding:8px 13px;border-radius:7px;cursor:pointer;transition:.14s}
 .sbtn:hover{color:var(--text);border-color:var(--dimmer)}
@@ -440,6 +444,24 @@ function runBridge(){
       pushUndo("reveal",function(){ obs("RemoveInput",{inputName:rn}).then(schedulePush); });
       if(rs) setTimeout(function(){ obs("RemoveInput",{inputName:rn}).then(schedulePush); },rs*1000);
       note("revealed "+rn);
+      return;
+    }
+    if(p.cmd==="copyto"){
+      var dest=p.dest, srcName=p.name||"that source";
+      obs("DuplicateSceneItem",{sceneName:p.scene,sceneItemId:p.id,destinationSceneName:dest})
+      .then(function(r){
+        if(!r||typeof r.sceneItemId!=="number"){
+          note("copy failed: "+(lastErr||"unknown"));
+          return;
+        }
+        var newId=r.sceneItemId;
+        pushUndo("copy",function(){
+          obs("RemoveSceneItem",{sceneName:dest,sceneItemId:newId}).then(schedulePush);
+        });
+        setRow("b_last","copied "+srcName+" \u2192 "+dest);
+        send("said",{t:"Copied \u201C"+srcName+"\u201D into \u201C"+dest+"\u201D."});
+        schedulePush();
+      });
       return;
     }
     if(p.cmd==="reload"){
@@ -1239,6 +1261,28 @@ function paint(){
       pendScene=pendScene||ST.current;
       pending[s.id]={x:Math.round((cw2-b.w)/2),y:Math.round((ch2-b.h)/2),w:b.w,h:b.h}; paint();
     });
+    if(ST.scenes.length>1){
+      var wrap=document.createElement("span");
+      wrap.style.cssText="display:flex;gap:6px;align-items:center";
+      var pick=document.createElement("select");
+      pick.className="ssel";
+      var ph=document.createElement("option");
+      ph.value=""; ph.textContent="copy to\u2026"; pick.appendChild(ph);
+      ST.scenes.forEach(function(n){
+        if(n===ST.current)return;
+        var o=document.createElement("option"); o.value=n; o.textContent=n; pick.appendChild(o);
+      });
+      pick.onchange=function(){
+        if(!pick.value)return;
+        var dest=pick.value;
+        cmd({cmd:"copyto",id:s.id,name:s.name,dest:dest});
+        said("Copying \u201C"+s.name+"\u201D into \u201C"+dest+"\u201D\u2026");
+        pick.value="";
+      };
+      wrap.appendChild(pick);
+      st.appendChild(wrap);
+    }
+
     var rb=sb2("reload",function(){
       if(/^BRIDGE$/i.test(s.name)){ rb.textContent="not the bridge"; setTimeout(function(){ rb.textContent="reload"; },2200); return; }
       cmd({cmd:"reload",name:s.name});
